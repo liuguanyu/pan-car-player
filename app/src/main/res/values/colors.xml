@@ -18,6 +18,7 @@
     <color name="car_background">#FF121212</color>
     <color name="car_background_dark">#FF0A0A0A</color>
     <color name="car_surface">#FF1E1E1E</color>
+    <color name="car_surface_highlight">#FF2D2D2D</color>
     <color name="car_text_primary">#FFFFFFFF</color>
     <color name="car_text_secondary">#FFB3B3B3</color>
     <color name="car_divider">#FF333333</color>

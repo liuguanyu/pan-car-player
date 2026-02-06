@@ -7,13 +7,21 @@ import android.content.ServiceConnection;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.View;
+import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.baidu.carplayer.adapter.CurrentPlaylistAdapter;
 
 import com.baidu.carplayer.manager.LyricsManager;
 import com.baidu.carplayer.manager.PlaylistManager;
@@ -66,10 +74,19 @@ public class PlayerActivity extends AppCompatActivity {
     private ImageButton nextButton;
     private ImageButton playModeButton;
     private ImageButton volumeButton;
+    private ImageButton playlistButton;
     private LrcView lrcView;
     private RotatingDiscView rotatingDiscView;
     private com.baidu.carplayer.widget.RotatingTextView rotatingTextView;
     private ParticleBackgroundView particleBackgroundView;
+    
+    // 播放列表相关
+    private FrameLayout playlistContainer;
+    private RecyclerView playlistRecyclerView;
+    private EditText playlistSearchInput;
+    private ImageButton closePlaylistButton;
+    private CurrentPlaylistAdapter currentPlaylistAdapter;
+    private boolean playlistVisible = false;
 
     // 服务相关
     private AudioPlayerService audioPlayerService;
@@ -212,6 +229,13 @@ public class PlayerActivity extends AppCompatActivity {
         rotatingDiscView = findViewById(R.id.rotating_disc);
         rotatingTextView = findViewById(R.id.rotating_text);
         particleBackgroundView = findViewById(R.id.particle_background);
+        playlistButton = findViewById(R.id.playlist_button);
+        
+        // 播放列表相关视图
+        playlistContainer = findViewById(R.id.playlist_container);
+        playlistRecyclerView = findViewById(R.id.playlist_recycler_view);
+        playlistSearchInput = findViewById(R.id.playlist_search_input);
+        closePlaylistButton = findViewById(R.id.close_playlist_button);
 
         // 设置按钮点击事件
         backButton.setOnClickListener(v -> onBackPressed());
@@ -220,6 +244,14 @@ public class PlayerActivity extends AppCompatActivity {
         nextButton.setOnClickListener(v -> playNext());
         playModeButton.setOnClickListener(v -> togglePlayMode());
         volumeButton.setOnClickListener(v -> toggleVolumeControl());
+        playlistButton.setOnClickListener(v -> togglePlaylist());
+        closePlaylistButton.setOnClickListener(v -> hidePlaylist());
+        
+        // 点击背景关闭播放列表
+        playlistContainer.setOnClickListener(v -> hidePlaylist());
+        
+        // 设置播放列表
+        setupPlaylist();
 
         // 进度条拖动事件
         progressBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -528,6 +560,97 @@ public class PlayerActivity extends AppCompatActivity {
             float currentVolume = audioPlayerService.getVolume();
             volumeBar.setProgress((int) (currentVolume * 100));
         }
+    }
+    
+    /**
+     * 设置播放列表
+     */
+    private void setupPlaylist() {
+        // 初始化适配器
+        currentPlaylistAdapter = new CurrentPlaylistAdapter();
+        playlistRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        playlistRecyclerView.setAdapter(currentPlaylistAdapter);
+        
+        // 设置点击事件
+        currentPlaylistAdapter.setOnSongClickListener((song, position) -> {
+            // 获取歌曲在原始列表中的位置
+            int originalPosition = currentPlaylistAdapter.getOriginalPosition(song);
+            if (originalPosition >= 0 && serviceBound) {
+                audioPlayerService.playAtPosition(originalPosition);
+                updatePlayerState();
+                hidePlaylist();
+            }
+        });
+        
+        // 设置搜索功能
+        playlistSearchInput.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (currentPlaylistAdapter != null) {
+                    currentPlaylistAdapter.getFilter().filter(s);
+                }
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
+        
+        // 初始隐藏播放列表
+        playlistContainer.setVisibility(View.GONE);
+    }
+    
+    /**
+     * 切换播放列表显示状态
+     */
+    private void togglePlaylist() {
+        if (playlistVisible) {
+            hidePlaylist();
+        } else {
+            showPlaylist();
+        }
+    }
+    
+    /**
+     * 显示播放列表
+     */
+    private void showPlaylist() {
+        if (serviceBound && audioPlayerService != null) {
+            List<Song> currentPlaylist = audioPlayerService.getSavedPlaylist();
+            if (currentPlaylist != null && !currentPlaylist.isEmpty()) {
+                currentPlaylistAdapter.setSongs(currentPlaylist);
+                
+                // 高亮当前播放歌曲
+                Song currentSong = audioPlayerService.getCurrentSong();
+                if (currentSong != null) {
+                    currentPlaylistAdapter.setCurrentPlayingSongId(currentSong.getId());
+                }
+                
+                playlistContainer.setVisibility(View.VISIBLE);
+                playlistVisible = true;
+                
+                // 清空搜索框
+                playlistSearchInput.setText("");
+                
+                // 滚动到当前播放位置
+                int currentPosition = audioPlayerService.getSavedPosition();
+                if (currentPosition >= 0 && currentPosition < currentPlaylist.size()) {
+                    playlistRecyclerView.scrollToPosition(currentPosition);
+                }
+            } else {
+                Toast.makeText(this, "播放列表为空", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+    
+    /**
+     * 隐藏播放列表
+     */
+    private void hidePlaylist() {
+        playlistContainer.setVisibility(View.GONE);
+        playlistVisible = false;
     }
 
     private void updatePlayPauseButton() {

@@ -269,8 +269,22 @@
                 app:tint="@android:color/white"
                 android:layout_marginStart="@dimen/spacing_large" />
 
+            <ImageButton
+                android:id="@+id/playlist_button"
+                android:layout_width="@dimen/icon_button_size"
+                android:layout_height="@dimen/icon_button_size"
+                android:src="@drawable/ic_playlist"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="播放列表"
+                app:tint="@android:color/white"
+                android:layout_marginStart="@dimen/spacing_large" />
+
         </LinearLayout>
 
     </LinearLayout>
+    
+    <!-- 播放列表覆盖层 (默认隐藏) -->
+    <include layout="@layout/layout_current_playlist"
+        android:visibility="gone"/>
 
 </LinearLayout>
