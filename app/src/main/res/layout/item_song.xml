@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/song_item_height"
+    android:orientation="horizontal"
+    android:padding="@dimen/spacing_normal"
+    android:gravity="center_vertical"
+    android:background="@drawable/song_item_background">
+
+
+    <TextView
+        android:id="@+id/song_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="@dimen/text_size_medium"
+        android:textColor="@color/car_text_primary"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:gravity="center_vertical" />
+
+
+    <ImageButton
+        android:id="@+id/song_more"
+        android:layout_width="@dimen/icon_button_size"
+        android:layout_height="@dimen/icon_button_size"
+        android:src="@drawable/ic_play"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Play from here"
+        android:layout_marginStart="@dimen/spacing_small" />
+
+</LinearLayout>

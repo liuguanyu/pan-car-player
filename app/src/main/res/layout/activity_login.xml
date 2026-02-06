@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="@dimen/spacing_large"
+    android:background="@color/car_background">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/login_title"
+        style="@style/Text.Title"
+        android:layout_marginBottom="@dimen/spacing_xlarge" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/login_instruction"
+        style="@style/Text.Medium"
+        android:gravity="center"
+        android:layout_marginBottom="@dimen/spacing_large" />
+
+    <!-- 二维码显示区域 -->
+    <androidx.cardview.widget.CardView
+        android:layout_width="300dp"
+        android:layout_height="300dp"
+        style="@style/Card.Default"
+        android:layout_marginBottom="@dimen/spacing_large">
+        
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+            
+            <ImageView
+                android:id="@+id/qr_code_image"
+                android:layout_width="280dp"
+                android:layout_height="280dp"
+                android:layout_gravity="center"
+                android:contentDescription="@string/login_qr_code"
+                android:background="@color/car_surface" />
+            
+            <ProgressBar
+                android:id="@+id/qr_code_progress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center" />
+                
+        </FrameLayout>
+        
+    </androidx.cardview.widget.CardView>
+
+    <!-- 用户码显示 -->
+    <TextView
+        android:id="@+id/user_code_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        style="@style/Text.Large"
+        android:layout_marginBottom="@dimen/spacing_large" />
+
+    <!-- 等待提示 -->
+    <TextView
+        android:id="@+id/waiting_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/login_waiting"
+        style="@style/Text.Secondary"
+        android:layout_marginBottom="@dimen/spacing_large" />
+
+    <!-- 错误信息 -->
+    <TextView
+        android:id="@+id/error_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        style="@style/Text.Secondary"
+        android:textColor="@color/status_error"
+        android:layout_marginBottom="@dimen/spacing_large"
+        android:visibility="gone" />
+
+    <!-- 重新加载按钮 -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/reload_button"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/button_height"
+        android:text="@string/dialog_retry"
+        style="@style/Button.Primary"
+        android:visibility="gone" />
+
+</LinearLayout>

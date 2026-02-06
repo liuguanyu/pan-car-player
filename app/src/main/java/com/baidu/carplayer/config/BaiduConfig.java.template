@@ -1,0 +1,30 @@
+package com.baidu.carplayer.config;
+
+/**
+ * 百度网盘配置模板
+ * 
+ * 这是一个模板文件，用于指导开发者创建真实的 BaiduConfig.java
+ * 请将此文件复制为 BaiduConfig.java 并填入真实的 APP_ID, APP_KEY, SECRET_KEY 等信息
+ * 
+ * 注意：真实的 BaiduConfig.java 包含敏感信息，已被添加到 .gitignore
+ * 请勿将包含真实密钥的 BaiduConfig.java 提交到版本控制系统
+ */
+public class BaiduConfig {
+    
+    // 百度网盘应用配置
+    // 请替换为你在百度网盘开放平台申请的应用信息
+    public static final String APP_ID = "YOUR_APP_ID";
+    public static final String APP_KEY = "YOUR_APP_KEY";
+    public static final String SECRET_KEY = "YOUR_SECRET_KEY";
+    public static final String SIGN_KEY = "YOUR_SIGN_KEY";
+    
+    // OAuth配置
+    public static final String REDIRECT_URI = "oob";
+    public static final String SCOPE = "basic,netdisk";
+    public static final String DEVICE_NAME = "度盘车载播放器";
+    
+    // API地址
+    public static final String API_BASE_URL = "https://pan.baidu.com/rest/2.0/";
+    public static final String OAUTH_URL = "https://openapi.baidu.com/oauth/2.0/";
+    public static final String PCS_URL = "https://d.pcs.baidu.com/rest/2.0/pcs/";
+}

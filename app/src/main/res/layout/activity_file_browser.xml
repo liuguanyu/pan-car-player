@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/car_background">
+
+    <!-- 顶部工具栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="@dimen/spacing_normal"
+        android:gravity="center_vertical"
+        android:background="@color/car_surface">
+
+        <ImageButton
+            android:id="@+id/back_button"
+            android:layout_width="@dimen/icon_button_size"
+            android:layout_height="@dimen/icon_button_size"
+            android:src="@android:drawable/ic_menu_revert"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="返回"
+            android:layout_marginEnd="@dimen/spacing_normal" />
+
+        <TextView
+            android:id="@+id/current_path"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="/"
+            style="@style/Text.Medium"
+            android:singleLine="true"
+            android:ellipsize="start" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/select_all_button"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/button_height"
+            android:text="全选"
+            style="@style/Button.Secondary"
+            android:layout_marginEnd="@dimen/spacing_small" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/add_button"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/button_height"
+            android:text="添加"
+            style="@style/Button.Primary" />
+
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider_height"
+        android:background="@color/car_divider" />
+
+    <!-- 文件列表 -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/file_recycler_view"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:scrollbars="vertical" />
+
+    <!-- 底部选择信息 -->
+    <LinearLayout
+        android:id="@+id/selection_info"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="@dimen/spacing_normal"
+        android:gravity="center_vertical"
+        android:background="@color/car_surface"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/selected_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="已选择 0 个文件"
+            style="@style/Text.Normal" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/clear_selection_button"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/button_height"
+            android:text="清空"
+            style="@style/Button.Secondary" />
+
+    </LinearLayout>
+
+    <!-- 加载进度 -->
+    <LinearLayout
+        android:id="@+id/loading_layout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/spacing_normal" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/tip_loading"
+            style="@style/Text.Secondary" />
+
+    </LinearLayout>
+
+    <!-- 空状态 -->
+    <LinearLayout
+        android:id="@+id/empty_layout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="当前目录为空"
+            style="@style/Text.Secondary"
+            android:layout_marginBottom="@dimen/spacing_medium" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/refresh_button"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/button_height"
+            android:text="刷新"
+            style="@style/Button.Primary" />
+
+    </LinearLayout>
+
+</LinearLayout>

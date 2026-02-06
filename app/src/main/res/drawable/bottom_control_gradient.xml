@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 底部深色渐变 - 从上到下由浅到深 -->
+    <item>
+        <shape>
+            <gradient
+                android:startColor="#00000000"
+                android:centerColor="#33000000"
+                android:endColor="#CC000000"
+                android:angle="270" />
+        </shape>
+    </item>
+    
+    <!-- 顶部微光效果 -->
+    <item
+        android:top="0dp"
+        android:bottom="2dp">
+        <shape>
+            <gradient
+                android:startColor="#22FFFFFF"
+                android:endColor="#00000000"
+                android:angle="270" />
+        </shape>
+    </item>
+</layer-list>
