@@ -107,12 +107,9 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
 
         initData();
         initViews();
-        
-        // 每次Activity可见时检查播放状态（在初始化视图之后）
-        checkNowPlayingStatus();
         loadSongs();
         
-        // 绑定服务
+        // 绑定服务（服务连接成功后会自动调用checkNowPlayingStatus）
         Intent intent = new Intent(this, AudioPlayerService.class);
         bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
     }
@@ -307,5 +304,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         super.onResume();
         // 刷新歌曲列表
         loadSongs();
+        // 检查播放状态（确保每次恢复时都能正确显示/隐藏按钮）
+        checkNowPlayingStatus();
     }
 }
