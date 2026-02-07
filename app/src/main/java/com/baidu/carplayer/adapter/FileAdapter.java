@@ -62,7 +62,8 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
 
     public void selectAllAudioFiles(boolean select) {
         for (FileItem file : files) {
-            if (file.getIsdir() == 0 && file.isAudioFile()) {
+            // 选择所有文件夹和音频文件
+            if (file.getIsdir() == 1 || file.isAudioFile()) {
                 selectedFiles.put(file.getFsId(), select);
             }
         }
@@ -71,7 +72,8 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
 
     public boolean areAllAudioFilesSelected() {
         for (FileItem file : files) {
-            if (file.getIsdir() == 0 && file.isAudioFile()) {
+            // 检查所有文件夹和音频文件是否都被选中
+            if (file.getIsdir() == 1 || file.isAudioFile()) {
                 if (!selectedFiles.containsKey(file.getFsId()) || !selectedFiles.get(file.getFsId())) {
                     return false;
                 }
@@ -95,13 +97,30 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
         return selected;
     }
 
-    public int getSelectedCount() {
-        return selectedFiles.size();
+    public int getSelectedFileCount() {
+        int count = 0;
+        for (FileItem file : files) {
+            if (file.getIsdir() == 0 && selectedFiles.containsKey(file.getFsId()) && selectedFiles.get(file.getFsId())) {
+                count++;
+            }
+        }
+        return count;
+    }
+    
+    public int getSelectedFolderCount() {
+        int count = 0;
+        for (FileItem file : files) {
+            if (file.getIsdir() == 1 && selectedFiles.containsKey(file.getFsId()) && selectedFiles.get(file.getFsId())) {
+                count++;
+            }
+        }
+        return count;
     }
 
     class FileViewHolder extends RecyclerView.ViewHolder {
         private CheckBox fileCheckbox;
         private ImageView fileIcon;
+        private ImageView selectedIcon;
         private TextView fileName;
         private TextView fileSize;
 
@@ -109,45 +128,82 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
             super(itemView);
             fileCheckbox = itemView.findViewById(R.id.file_checkbox);
             fileIcon = itemView.findViewById(R.id.file_icon);
+            selectedIcon = itemView.findViewById(R.id.selected_icon);
             fileName = itemView.findViewById(R.id.file_name);
             fileSize = itemView.findViewById(R.id.file_size);
 
             itemView.setOnClickListener(v -> {
                 int position = getAdapterPosition();
                 if (position != RecyclerView.NO_POSITION && listener != null) {
-                    listener.onFileClick(files.get(position));
+                    FileItem file = files.get(position);
+                    if (file.getIsdir() == 1) {
+                        // 文件夹点击进入
+                        listener.onFileClick(file);
+                    } else {
+                        // 文件点击切换选中状态
+                        toggleSelection(file);
+                    }
                 }
             });
-
-            fileCheckbox.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            
+            itemView.setOnLongClickListener(v -> {
                 int position = getAdapterPosition();
                 if (position != RecyclerView.NO_POSITION && listener != null) {
                     FileItem file = files.get(position);
-                    selectedFiles.put(file.getFsId(), isChecked);
-                    listener.onFileCheckChanged(file, isChecked);
+                    if (file.getIsdir() == 1) {
+                        // 文件夹长按切换选中状态
+                        toggleSelection(file);
+                        return true;
+                    }
                 }
+                return false;
             });
+        }
+        
+        private void toggleSelection(FileItem file) {
+            boolean isSelected = selectedFiles.containsKey(file.getFsId()) && selectedFiles.get(file.getFsId());
+            boolean newStatus = !isSelected;
+            selectedFiles.put(file.getFsId(), newStatus);
+            notifyItemChanged(getAdapterPosition());
+            if (listener != null) {
+                listener.onFileCheckChanged(file, newStatus);
+            }
         }
 
         public void bind(FileItem file) {
             fileName.setText(file.getServerFilename());
-            fileSize.setText(formatFileSize(file.getSize()));
+            
+            boolean isSelected = selectedFiles.containsKey(file.getFsId()) && selectedFiles.get(file.getFsId());
+            
+            // 设置选中状态图标
+            if (isSelected) {
+                selectedIcon.setVisibility(View.VISIBLE);
+            } else {
+                selectedIcon.setVisibility(View.GONE);
+            }
 
             // 设置图标
             if (file.getIsdir() == 1) {
-                // 目录图标
-                fileIcon.setImageResource(android.R.drawable.ic_menu_myplaces);
-                fileCheckbox.setVisibility(View.GONE);
+                // 目录图标 - 使用黄色文件夹
+                fileIcon.setImageResource(R.drawable.ic_folder_yellow);
+                // 文件夹不显示大小信息
+                fileSize.setVisibility(View.GONE);
             } else if (file.isAudioFile()) {
                 // 音频文件图标
                 fileIcon.setImageResource(android.R.drawable.ic_lock_silent_mode_off);
-                fileCheckbox.setVisibility(View.VISIBLE);
-                fileCheckbox.setChecked(selectedFiles.containsKey(file.getFsId()) && selectedFiles.get(file.getFsId()));
+                // 显示文件大小
+                fileSize.setVisibility(View.VISIBLE);
+                fileSize.setText(formatFileSize(file.getSize()));
             } else {
                 // 其他文件图标
                 fileIcon.setImageResource(android.R.drawable.ic_menu_agenda);
-                fileCheckbox.setVisibility(View.GONE);
+                // 显示文件大小
+                fileSize.setVisibility(View.VISIBLE);
+                fileSize.setText(formatFileSize(file.getSize()));
             }
+            
+            // 不再使用CheckBox，逻辑已移至点击事件和selectedIcon
+            fileCheckbox.setVisibility(View.GONE);
         }
 
         private String formatFileSize(long size) {

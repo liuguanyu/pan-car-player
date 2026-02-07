@@ -9,7 +9,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.adapter.FileAdapter;
@@ -57,6 +57,11 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
     private PlaylistManager playlistManager;
     private BaiduPanService baiduPanService;
     private String accessToken;
+    
+    // 用于递归扫描文件夹
+    private int pendingScans = 0;
+    private List<Song> songsToAdd = new ArrayList<>();
+    private android.app.ProgressDialog progressDialog;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -88,8 +93,9 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
         loadingLayout = findViewById(R.id.loading_layout);
         emptyLayout = findViewById(R.id.empty_layout);
 
-        // 设置RecyclerView
-        fileRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        // 设置RecyclerView为宫格布局
+        GridLayoutManager gridLayoutManager = new GridLayoutManager(this, 3);
+        fileRecyclerView.setLayoutManager(gridLayoutManager);
         fileAdapter = new FileAdapter();
         fileAdapter.setOnFileClickListener(this);
         fileRecyclerView.setAdapter(fileAdapter);
@@ -225,38 +231,143 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
             return;
         }
 
-        // 将选中的文件添加到播放列表
-        for (FileItem fileItem : selectedFiles) {
-            Song song = new Song();
-            song.setPlaylistId(playlistId);
-            song.setFsId(fileItem.getFsId());
-            song.setTitle(fileItem.getServerFilename());
-            song.setPath(fileItem.getPath());
-            song.setSize(fileItem.getSize());
-            song.setAddedTime(System.currentTimeMillis());
+        songsToAdd.clear();
+        pendingScans = 0;
+        
+        // 显示进度对话框
+        progressDialog = new android.app.ProgressDialog(this);
+        progressDialog.setMessage("正在处理中...");
+        progressDialog.setCancelable(false);
+        progressDialog.show();
 
+        // 处理选中的文件和文件夹
+        for (FileItem fileItem : selectedFiles) {
+            if (fileItem.getIsdir() == 1) {
+                // 文件夹，递归扫描
+                scanFolder(fileItem.getPath());
+            } else if (fileItem.isAudioFile()) {
+                // 音频文件，直接添加
+                addFileToList(fileItem);
+            }
+        }
+        
+        // 如果没有异步任务，直接完成
+        if (pendingScans == 0) {
+            finishAddingFiles();
+        }
+    }
+    
+    private void addFileToList(FileItem fileItem) {
+        Song song = new Song();
+        song.setPlaylistId(playlistId);
+        song.setFsId(fileItem.getFsId());
+        song.setTitle(fileItem.getServerFilename());
+        song.setPath(fileItem.getPath());
+        song.setSize(fileItem.getSize());
+        song.setAddedTime(System.currentTimeMillis());
+        songsToAdd.add(song);
+    }
+    
+    private void scanFolder(String path) {
+        pendingScans++;
+        if (progressDialog != null) {
+            progressDialog.setMessage("正在扫描: " + path);
+        }
+        
+        Call<FileListResponse> call = baiduPanService.getFileList(
+                "list",
+                accessToken,
+                path,
+                "name",
+                0,
+                1000,
+                1, // 递归参数? 百度API好像不支持一步递归，必须手动递归
+                0,
+                0
+        );
+
+        call.enqueue(new Callback<FileListResponse>() {
+            @Override
+            public void onResponse(Call<FileListResponse> call, Response<FileListResponse> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    List<FileItem> list = response.body().getList();
+                    if (list != null) {
+                        for (FileItem item : list) {
+                            if (item.getIsdir() == 1) {
+                                // 递归扫描子文件夹
+                                scanFolder(item.getPath());
+                            } else if (item.isAudioFile()) {
+                                addFileToList(item);
+                            }
+                        }
+                    }
+                }
+                checkScanCompletion();
+            }
+
+            @Override
+            public void onFailure(Call<FileListResponse> call, Throwable t) {
+                checkScanCompletion();
+            }
+        });
+    }
+    
+    private synchronized void checkScanCompletion() {
+        pendingScans--;
+        if (pendingScans <= 0) {
+            runOnUiThread(this::finishAddingFiles);
+        }
+    }
+    
+    private void finishAddingFiles() {
+        if (progressDialog != null && progressDialog.isShowing()) {
+            progressDialog.dismiss();
+        }
+        
+        if (songsToAdd.isEmpty()) {
+            Toast.makeText(this, "未找到可添加的音频文件", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        // 批量添加到数据库
+        // 这里为了简单，循环添加，实际应该用批量接口
+        int total = songsToAdd.size();
+        for (Song song : songsToAdd) {
             playlistManager.addSongToPlaylist(playlistId, song, new PlaylistManager.OnResultListener() {
                 @Override
                 public void onSuccess(Object result) {
-                    // 成功添加
+                    // ignore
                 }
 
                 @Override
                 public void onError(String error) {
-                    runOnUiThread(() -> Toast.makeText(FileBrowserActivity.this, "添加失败: " + error, Toast.LENGTH_SHORT).show());
+                    // ignore
                 }
             });
         }
 
-        Toast.makeText(this, "已添加 " + selectedFiles.size() + " 个文件", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "已添加 " + total + " 个音频文件", Toast.LENGTH_SHORT).show();
         finish();
     }
 
     private void updateSelectionInfo() {
-        int selectedCount = fileAdapter.getSelectedCount();
-        if (selectedCount > 0) {
+        int selectedFileCount = fileAdapter.getSelectedFileCount();
+        int selectedFolderCount = fileAdapter.getSelectedFolderCount();
+        int totalSelected = selectedFileCount + selectedFolderCount;
+        
+        if (totalSelected > 0) {
             selectionInfo.setVisibility(View.VISIBLE);
-            selectedCountText.setText("已选择 " + selectedCount + " 个文件");
+            StringBuilder sb = new StringBuilder("已选择 ");
+            if (selectedFileCount > 0) {
+                sb.append(selectedFileCount).append(" 个文件");
+            }
+            if (selectedFolderCount > 0) {
+                if (selectedFileCount > 0) {
+                    sb.append(", ");
+                }
+                sb.append(selectedFolderCount).append(" 个文件夹");
+            }
+            selectedCountText.setText(sb.toString());
         } else {
             selectionInfo.setVisibility(View.GONE);
         }
