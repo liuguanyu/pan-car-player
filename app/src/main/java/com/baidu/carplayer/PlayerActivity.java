@@ -318,11 +318,30 @@ public class PlayerActivity extends AppCompatActivity {
         int savedPosition = audioPlayerService.getSavedPosition();
         
         if (savedPlaylist != null && !savedPlaylist.isEmpty() && savedPosition >= 0 && savedPosition < savedPlaylist.size()) {
+            // 保存当前的播放时间位置
+            long currentPlaybackPosition = audioPlayerService.getCurrentPosition();
+            boolean wasPlaying = audioPlayerService.isPlaying();
+            
             // 设置播放列表到服务
             audioPlayerService.setPlaylist(savedPlaylist);
             
             // 播放指定位置的歌曲（这会加载歌曲到播放器）
             audioPlayerService.playAtPosition(savedPosition);
+            
+            // 恢复播放位置 - 使用延迟确保媒体已加载
+            handler.postDelayed(() -> {
+                if (serviceBound && audioPlayerService != null) {
+                    // seek到之前的播放位置
+                    audioPlayerService.seekTo((int) currentPlaybackPosition);
+                    
+                    // 如果之前正在播放，继续播放；否则暂停
+                    if (wasPlaying && !audioPlayerService.isPlaying()) {
+                        audioPlayerService.play();
+                    } else if (!wasPlaying && audioPlayerService.isPlaying()) {
+                        audioPlayerService.pause();
+                    }
+                }
+            }, 300);
             
             // 获取当前歌曲
             currentSong = audioPlayerService.getCurrentSong();
@@ -332,11 +351,6 @@ public class PlayerActivity extends AppCompatActivity {
             updatePlayPauseButton();
             updatePlayModeButton();
             updateParticleBackground();
-            
-            // 自动开始播放
-            if (!audioPlayerService.isPlaying()) {
-                audioPlayerService.play();
-            }
             
             // 启动进度更新
             startUpdateProgress();
