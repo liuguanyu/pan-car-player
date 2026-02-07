@@ -55,6 +55,7 @@ public class AudioPlayerService extends Service {
     private static final String PREFS_NAME = "AudioPlayerPrefs";
     private static final String KEY_PLAYLIST = "playlist";
     private static final String KEY_CURRENT_POSITION = "current_position";
+    private static final String KEY_PLAYBACK_PROGRESS = "playback_progress";
     private static final String KEY_PLAY_MODE = "play_mode";
     
     private ExoPlayer exoPlayer;
@@ -77,6 +78,9 @@ public class AudioPlayerService extends Service {
     // 持久化相关
     private SharedPreferences sharedPreferences;
     private Gson gson;
+    
+    // 待处理的seek位置（用于冷启动恢复播放进度）
+    private Long pendingSeekPosition = null;
     
     /**
      * 播放模式枚举
@@ -159,6 +163,14 @@ public class AudioPlayerService extends Service {
                             Log.w(TAG, "⚠️ 无法获取音频格式信息");
                         }
                         
+                        // 处理待处理的seek操作（用于冷启动恢复播放进度）
+                        if (pendingSeekPosition != null) {
+                            Log.d(TAG, "执行待处理的seek操作: " + pendingSeekPosition + "ms");
+                            exoPlayer.seekTo(pendingSeekPosition);
+                            exoPlayer.play(); // 确保seek后继续播放
+                            pendingSeekPosition = null;
+                        }
+                        
                         // 检查播放状态
                         Log.d(TAG, "========== 播放状态检查 ==========");
                         Log.d(TAG, "播放状态: " + (exoPlayer.getPlayWhenReady() ? "播放中" : "已暂停"));
@@ -174,7 +186,8 @@ public class AudioPlayerService extends Service {
                 Log.d(TAG, "播放状态变化: " + stateStr);
                 
                 if (playbackState == Player.STATE_ENDED) {
-                    // 播放结束，自动播放下一首
+                    // 播放结束，自动播放下一首，并保存状态
+                    savePlaybackState();
                     playNext();
                 }
 
@@ -186,6 +199,13 @@ public class AudioPlayerService extends Service {
             
             @Override
             public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+                // 当播放状态改变时保存播放进度
+                if (!playWhenReady) {
+                    // 暂停时保存状态
+                    savePlaybackState();
+                    Log.d(TAG, "暂停播放，保存播放状态");
+                }
+                
                 if (playbackStateListener != null) {
                     playbackStateListener.onPlayWhenReadyChanged(playWhenReady);
                 }
@@ -399,10 +419,17 @@ public class AudioPlayerService extends Service {
             exoPlayer.setMediaItem(mediaItem);
             
             Log.d(TAG, "准备播放器...");
-            exoPlayer.prepare();
             
-            Log.d(TAG, "开始播放...");
-            exoPlayer.play();
+            // 如果有待处理的seek操作，先不自动播放，等待准备好后seek再播放
+            if (pendingSeekPosition != null) {
+                Log.d(TAG, "有待处理的seek操作，暂停自动播放等待准备完成...");
+                exoPlayer.setPlayWhenReady(false);
+            } else {
+                Log.d(TAG, "开始播放...");
+                exoPlayer.setPlayWhenReady(true);
+            }
+            
+            exoPlayer.prepare();
             
             // 检查音量设置
             float volume = exoPlayer.getVolume();
@@ -454,14 +481,41 @@ public class AudioPlayerService extends Service {
      * 在指定位置播放
      */
     public void playAtPosition(int position) {
+        playAtPosition(position, true, null);
+    }
+    
+    /**
+     * 在指定位置播放
+     * @param position 歌曲在列表中的位置
+     * @param saveState 是否保存播放状态（用于恢复播放进度时避免覆盖）
+     */
+    public void playAtPosition(int position, boolean saveState) {
+        playAtPosition(position, saveState, null);
+    }
+    
+    /**
+     * 在指定位置播放，并在播放器准备好后seek到指定位置
+     * @param position 歌曲在列表中的位置
+     * @param saveState 是否保存播放状态（用于恢复播放进度时避免覆盖）
+     * @param seekToPosition 播放器准备好后要seek到的位置（毫秒），null表示不seek
+     */
+    public void playAtPosition(int position, boolean saveState, Long seekToPosition) {
         if (playlist == null || position < 0 || position >= playlist.size()) {
             return;
         }
         
         currentPosition = position;
+        pendingSeekPosition = seekToPosition;
+        Log.d(TAG, "========== playAtPosition ==========");
+        Log.d(TAG, "位置: " + position);
+        Log.d(TAG, "seekToPosition: " + seekToPosition);
+        Log.d(TAG, "pendingSeekPosition已设置: " + pendingSeekPosition);
         com.baidu.carplayer.model.Song song = playlist.get(position);
         playFromBaiduPan(song);
-        savePlaybackState(); // 保存播放状态
+        
+        if (saveState) {
+            savePlaybackState(); // 保存播放状态
+        }
     }
     
     /**
@@ -549,6 +603,20 @@ public class AudioPlayerService extends Service {
                     }
                 }
             });
+    }
+    
+    /**
+     * 检查播放器是否实际加载了媒体项
+     * @return true如果播放器有媒体项，false如果播放器为空
+     */
+    public boolean isPlayerReady() {
+        if (exoPlayer == null) {
+            return false;
+        }
+        // 检查播放器是否有媒体项
+        boolean hasMedia = exoPlayer.getMediaItemCount() > 0;
+        Log.d(TAG, "isPlayerReady: mediaItemCount=" + exoPlayer.getMediaItemCount() + ", hasMedia=" + hasMedia);
+        return hasMedia;
     }
     
     /**
@@ -788,6 +856,22 @@ public class AudioPlayerService extends Service {
     }
     
     @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        // 当系统内存不足时保存播放状态
+        savePlaybackState();
+        Log.d(TAG, "onTrimMemory: 系统内存不足，保存播放状态，level=" + level);
+    }
+    
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        // 当用户从最近任务列表清除应用时保存播放状态
+        savePlaybackState();
+        Log.d(TAG, "onTaskRemoved: 应用从最近任务列表被清除，保存播放状态");
+    }
+    
+    @Override
     public void onDestroy() {
         super.onDestroy();
         savePlaybackState(); // 在服务销毁前保存状态
@@ -801,7 +885,7 @@ public class AudioPlayerService extends Service {
     /**
      * 保存播放状态到 SharedPreferences
      */
-    private void savePlaybackState() {
+    public void savePlaybackState() {
         if (playlist == null || playlist.isEmpty()) {
             return;
         }
@@ -812,8 +896,13 @@ public class AudioPlayerService extends Service {
         String playlistJson = gson.toJson(playlist);
         editor.putString(KEY_PLAYLIST, playlistJson);
         
-        // 保存当前播放位置
+        // 保存当前播放位置（歌曲在列表中的索引）
         editor.putInt(KEY_CURRENT_POSITION, currentPosition);
+        
+        // 保存当前播放进度（毫秒）
+        if (exoPlayer != null) {
+            editor.putLong(KEY_PLAYBACK_PROGRESS, exoPlayer.getCurrentPosition());
+        }
         
         // 保存播放模式
         editor.putString(KEY_PLAY_MODE, playMode.name());
@@ -869,6 +958,13 @@ public class AudioPlayerService extends Service {
      */
     public int getSavedPosition() {
         return currentPosition;
+    }
+
+    /**
+     * 获取保存的播放进度（毫秒）
+     */
+    public long getSavedProgress() {
+        return sharedPreferences.getLong(KEY_PLAYBACK_PROGRESS, 0);
     }
     
     /**

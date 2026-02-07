@@ -7,6 +7,7 @@ import android.content.ServiceConnection;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.util.Log;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
@@ -318,11 +319,32 @@ public class PlayerActivity extends AppCompatActivity {
         int savedPosition = audioPlayerService.getSavedPosition();
         
         if (savedPlaylist != null && !savedPlaylist.isEmpty() && savedPosition >= 0 && savedPosition < savedPlaylist.size()) {
-            // 直接从服务获取当前歌曲和状态，不需要重新加载
-            // 因为服务一直在后台运行，音乐状态已经保持
             playlistSongs = savedPlaylist;
             currentPosition = savedPosition;
+            
+            // 检查是热恢复还是冷启动
+            // 使用isPlayerReady()检查播放器是否实际加载了媒体项
+            // 如果播放器没有媒体项，说明是冷启动（即使Service还在运行）
+            boolean playerReady = audioPlayerService.isPlayerReady();
             currentSong = audioPlayerService.getCurrentSong();
+            
+            if (!playerReady) {
+                // 冷启动：播放器没有加载媒体项，需要重新加载歌曲并定位到保存的播放位置
+                Log.d("PlayerActivity", "冷启动：播放器无媒体项，重新加载歌曲并恢复播放位置");
+                
+                // 从服务获取保存的播放进度（毫秒）
+                long savedProgress = audioPlayerService.getSavedProgress();
+                Log.d("PlayerActivity", "获取到保存的播放进度: " + savedProgress + "ms");
+                
+                // 重新加载歌曲，并在播放器准备好后自动seek到保存的位置
+                // savedProgress > 0 时传入进度，否则传null从头播放
+                audioPlayerService.playAtPosition(savedPosition, false, savedProgress > 0 ? savedProgress : null);
+                
+                currentSong = audioPlayerService.getCurrentSong();
+            } else {
+                // 热恢复：播放器已有媒体项，直接同步UI
+                Log.d("PlayerActivity", "热恢复：播放器有媒体项，直接同步当前播放状态");
+            }
             
             // 更新UI以反映当前播放状态
             updatePlayerState();
@@ -861,6 +883,26 @@ public class PlayerActivity extends AppCompatActivity {
         headerLayout.setBackground(gradientDrawable);
     }
     
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // 当Activity进入后台时保存播放进度
+        if (serviceBound && audioPlayerService != null) {
+            audioPlayerService.savePlaybackState();
+            Log.d("PlayerActivity", "onPause: 保存播放状态");
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // 当Activity完全不可见时再次保存播放进度（双重保险）
+        if (serviceBound && audioPlayerService != null) {
+            audioPlayerService.savePlaybackState();
+            Log.d("PlayerActivity", "onStop: 保存播放状态");
+        }
+    }
+
     @Override
     public void onBackPressed() {
         // 如果是从恢复播放模式进入（即从SplashActivity直接跳转过来）
