@@ -690,7 +690,7 @@ public class PlayerActivity extends AppCompatActivity {
                     playModeButton.setContentDescription("随机播放");
                     break;
                 case SINGLE:
-                    playModeButton.setImageResource(R.drawable.ic_repeat);
+                    playModeButton.setImageResource(R.drawable.ic_repeat_one);
                     playModeButton.setContentDescription("单曲循环");
                     break;
             }
