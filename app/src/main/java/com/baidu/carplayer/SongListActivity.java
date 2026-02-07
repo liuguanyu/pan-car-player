@@ -164,7 +164,8 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
     
     private void checkNowPlayingStatus() {
         if (serviceBound && audioPlayerService != null) {
-            if (audioPlayerService.isPlaying() || audioPlayerService.getCurrentSong() != null) {
+            // 只有在播放进行中时才显示按钮
+            if (audioPlayerService.isPlaying()) {
                 nowPlayingButton.setVisibility(View.VISIBLE);
             } else {
                 nowPlayingButton.setVisibility(View.GONE);

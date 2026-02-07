@@ -128,9 +128,8 @@ public class MainActivity extends AppCompatActivity implements PlaylistGridAdapt
     
     private void checkNowPlayingStatus() {
         if (serviceBound && audioPlayerService != null) {
-            // 检查是否有正在播放的歌曲或者保存的播放状态
-            if (audioPlayerService.isPlaying() || audioPlayerService.getCurrentSong() != null
-                    || audioPlayerService.hasSavedPlaybackState()) {
+            // 只有在播放进行中时才显示按钮
+            if (audioPlayerService.isPlaying()) {
                 nowPlayingButton.setVisibility(View.VISIBLE);
             } else {
                 nowPlayingButton.setVisibility(View.GONE);
