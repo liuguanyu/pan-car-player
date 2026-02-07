@@ -17,8 +17,12 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.adapter.SongAdapter;
+import com.baidu.carplayer.auth.BaiduAuthService;
 import com.baidu.carplayer.manager.PlaylistManager;
+import com.baidu.carplayer.model.AuthInfo;
 import com.baidu.carplayer.model.Song;
+import com.baidu.carplayer.network.BaiduPanService;
+import com.baidu.carplayer.network.RetrofitClient;
 import com.baidu.carplayer.service.AudioPlayerService;
 import androidx.media3.common.PlaybackException;
 
@@ -42,10 +46,14 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
     private ImageButton playAllButton;
     private ImageButton shuffleButton;
     private ImageButton nowPlayingButton;
+    private ImageButton refreshButton;
 
     private String playlistId;
     private String playlistName;
     private List<Song> currentSongs;
+    
+    private BaiduPanService baiduPanService;
+    private String accessToken;
 
     private AudioPlayerService audioPlayerService;
     private boolean serviceBound = false;
@@ -132,6 +140,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         playAllButton = findViewById(R.id.play_all_button);
         shuffleButton = findViewById(R.id.shuffle_button);
         nowPlayingButton = findViewById(R.id.now_playing_button);
+        refreshButton = findViewById(R.id.refresh_button);
 
         // 设置标题
         if (playlistName != null) {
@@ -155,6 +164,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         playAllButton.setOnClickListener(v -> playAll());
         shuffleButton.setOnClickListener(v -> shufflePlay());
         nowPlayingButton.setOnClickListener(v -> openCurrentPlayer());
+        refreshButton.setOnClickListener(v -> refreshPlaylist());
         
         findViewById(R.id.add_songs_empty_button).setOnClickListener(v -> openFileBrowser());
     }
@@ -183,6 +193,13 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
 
     private void initData() {
         playlistManager = new PlaylistManager(this);
+        baiduPanService = RetrofitClient.getInstance().create(BaiduPanService.class);
+        
+        // 获取访问令牌
+        AuthInfo authInfo = BaiduAuthService.getInstance(this).getAuthInfo();
+        if (authInfo != null) {
+            accessToken = authInfo.getAccessToken();
+        }
     }
 
     private void loadSongs() {
@@ -249,6 +266,49 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         Intent intent = new Intent(this, FileBrowserActivity.class);
         intent.putExtra(FileBrowserActivity.EXTRA_PLAYLIST_ID, playlistId);
         startActivity(intent);
+    }
+
+    private void refreshPlaylist() {
+        if (accessToken == null || accessToken.isEmpty()) {
+            Toast.makeText(this, "未登录，请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        if (playlistId == null) {
+            Toast.makeText(this, "播放列表ID为空", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        // 显示进度对话框
+        android.app.ProgressDialog progressDialog = new android.app.ProgressDialog(this);
+        progressDialog.setMessage("正在刷新列表...");
+        progressDialog.setCancelable(false);
+        progressDialog.show();
+        
+        // 调用PlaylistManager的刷新方法
+        playlistManager.refreshPlaylist(playlistId, baiduPanService, accessToken, new PlaylistManager.OnResultListener() {
+            @Override
+            public void onSuccess(Object result) {
+                runOnUiThread(() -> {
+                    if (progressDialog.isShowing()) {
+                        progressDialog.dismiss();
+                    }
+                    Toast.makeText(SongListActivity.this, (String) result, Toast.LENGTH_LONG).show();
+                    // 刷新列表显示
+                    loadSongs();
+                });
+            }
+            
+            @Override
+            public void onError(String error) {
+                runOnUiThread(() -> {
+                    if (progressDialog.isShowing()) {
+                        progressDialog.dismiss();
+                    }
+                    Toast.makeText(SongListActivity.this, "刷新失败: " + error, Toast.LENGTH_LONG).show();
+                });
+            }
+        });
     }
 
     private void playAll() {

@@ -9,15 +9,24 @@ import android.os.IBinder;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.Toast;
+import android.widget.ArrayAdapter;
+import android.widget.TextView;
+import android.view.ViewGroup;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.adapter.PlaylistGridAdapter;
+import com.baidu.carplayer.auth.BaiduAuthService;
 import com.baidu.carplayer.manager.PlaylistManager;
+import com.baidu.carplayer.model.AuthInfo;
 import com.baidu.carplayer.model.Playlist;
+import com.baidu.carplayer.network.BaiduPanService;
+import com.baidu.carplayer.network.RetrofitClient;
 import com.baidu.carplayer.service.AudioPlayerService;
 import com.google.android.material.textfield.TextInputEditText;
 import androidx.media3.common.PlaybackException;
@@ -38,6 +47,9 @@ public class MainActivity extends AppCompatActivity implements PlaylistGridAdapt
 
     private AudioPlayerService audioPlayerService;
     private boolean serviceBound = false;
+    
+    private BaiduPanService baiduPanService;
+    private String accessToken;
 
     private ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -148,6 +160,14 @@ public class MainActivity extends AppCompatActivity implements PlaylistGridAdapt
 
     private void initData() {
         playlistManager = new PlaylistManager(this);
+        baiduPanService = RetrofitClient.getInstance().create(BaiduPanService.class);
+        
+        // 获取访问令牌
+        AuthInfo authInfo = BaiduAuthService.getInstance(this).getAuthInfo();
+        if (authInfo != null) {
+            accessToken = authInfo.getAccessToken();
+        }
+        
         loadPlaylists();
     }
 
@@ -232,16 +252,32 @@ public class MainActivity extends AppCompatActivity implements PlaylistGridAdapt
     }
 
     private void showPlaylistOptionsDialog(Playlist playlist) {
-        String[] options = {"重命名", "删除"};
+        String[] options = {"刷新", "重命名", "删除"};
+        
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this, android.R.layout.select_dialog_item, options) {
+            @NonNull
+            @Override
+            public View getView(int position, @Nullable View convertView, @NonNull ViewGroup parent) {
+                View view = super.getView(position, convertView, parent);
+                TextView textView = (TextView) view.findViewById(android.R.id.text1);
+                if (textView != null) {
+                    textView.setTextColor(getColor(R.color.car_text_primary));
+                }
+                return view;
+            }
+        };
         
         new AlertDialog.Builder(this)
                 .setTitle(playlist.getName())
-                .setItems(options, (dialog, which) -> {
+                .setAdapter(adapter, (dialog, which) -> {
                     switch (which) {
-                        case 0: // 重命名
+                        case 0: // 刷新
+                            refreshPlaylist(playlist);
+                            break;
+                        case 1: // 重命名
                             showRenamePlaylistDialog(playlist);
                             break;
-                        case 1: // 删除
+                        case 2: // 删除
                             showDeleteConfirmDialog(playlist);
                             break;
                     }
@@ -309,6 +345,49 @@ public class MainActivity extends AppCompatActivity implements PlaylistGridAdapt
             @Override
             public void onError(String error) {
                 runOnUiThread(() -> Toast.makeText(MainActivity.this, "删除失败: " + error, Toast.LENGTH_SHORT).show());
+            }
+        });
+    }
+    
+    private void refreshPlaylist(Playlist playlist) {
+        if (accessToken == null || accessToken.isEmpty()) {
+            Toast.makeText(this, "未登录，请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        if (playlist.getId() == null) {
+            Toast.makeText(this, "播放列表ID为空", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        // 显示进度对话框
+        android.app.ProgressDialog progressDialog = new android.app.ProgressDialog(this);
+        progressDialog.setMessage("正在刷新列表...");
+        progressDialog.setCancelable(false);
+        progressDialog.show();
+        
+        // 调用PlaylistManager的刷新方法
+        playlistManager.refreshPlaylist(playlist.getId(), baiduPanService, accessToken, new PlaylistManager.OnResultListener() {
+            @Override
+            public void onSuccess(Object result) {
+                runOnUiThread(() -> {
+                    if (progressDialog.isShowing()) {
+                        progressDialog.dismiss();
+                    }
+                    Toast.makeText(MainActivity.this, (String) result, Toast.LENGTH_LONG).show();
+                    // 刷新播放列表显示
+                    loadPlaylists();
+                });
+            }
+            
+            @Override
+            public void onError(String error) {
+                runOnUiThread(() -> {
+                    if (progressDialog.isShowing()) {
+                        progressDialog.dismiss();
+                    }
+                    Toast.makeText(MainActivity.this, "刷新失败: " + error, Toast.LENGTH_LONG).show();
+                });
             }
         });
     }

@@ -59,6 +59,16 @@
             android:layout_marginEnd="@dimen/spacing_small" />
 
         <ImageButton
+            android:id="@+id/refresh_button"
+            android:layout_width="@dimen/icon_button_size"
+            android:layout_height="@dimen/icon_button_size"
+            android:src="@android:drawable/ic_popup_sync"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="刷新列表"
+            app:tint="@android:color/white"
+            android:layout_marginEnd="@dimen/spacing_small" />
+
+        <ImageButton
             android:id="@+id/add_songs_button"
             android:layout_width="@dimen/icon_button_size"
             android:layout_height="@dimen/icon_button_size"
