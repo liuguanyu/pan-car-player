@@ -97,7 +97,7 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
         emptyLayout = findViewById(R.id.empty_layout);
 
         // 设置RecyclerView为宫格布局
-        GridLayoutManager gridLayoutManager = new GridLayoutManager(this, 3);
+        GridLayoutManager gridLayoutManager = new GridLayoutManager(this, 4);
         fileRecyclerView.setLayoutManager(gridLayoutManager);
         fileAdapter = new FileAdapter();
         fileAdapter.setOnFileClickListener(this);
