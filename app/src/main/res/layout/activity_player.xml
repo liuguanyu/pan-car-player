@@ -213,30 +213,41 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center"
+            android:gravity="center_vertical"
             android:paddingBottom="@dimen/spacing_small">
 
-            <ImageButton
-                android:id="@+id/play_mode_button"
-                android:layout_width="@dimen/icon_button_size"
-                android:layout_height="@dimen/icon_button_size"
-                android:src="@drawable/ic_repeat"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="播放模式"
-                app:tint="@android:color/white"
-                android:layout_marginEnd="@dimen/spacing_large" />
+            <!-- 左侧控制区 -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="horizontal"
+                android:gravity="end">
 
-            <ImageButton
-                android:id="@+id/previous_button"
-                android:layout_width="64dp"
-                android:layout_height="64dp"
-                android:src="@drawable/ic_skip_previous"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="上一首"
-                app:tint="@android:color/white"
-                android:scaleType="fitCenter"
-                android:layout_marginEnd="@dimen/spacing_medium" />
+                <ImageButton
+                    android:id="@+id/play_mode_button"
+                    android:layout_width="@dimen/icon_button_size"
+                    android:layout_height="@dimen/icon_button_size"
+                    android:src="@drawable/ic_repeat"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="播放模式"
+                    app:tint="@android:color/white"
+                    android:layout_marginEnd="@dimen/spacing_large" />
 
+                <ImageButton
+                    android:id="@+id/previous_button"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:src="@drawable/ic_skip_previous"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="上一首"
+                    app:tint="@android:color/white"
+                    android:scaleType="fitCenter"
+                    android:layout_marginEnd="@dimen/spacing_medium" />
+
+            </LinearLayout>
+
+            <!-- 中间播放按钮 -->
             <ImageButton
                 android:id="@+id/play_pause_button"
                 android:layout_width="80dp"
@@ -248,36 +259,46 @@
                 android:scaleType="fitCenter"
                 android:padding="16dp" />
 
-            <ImageButton
-                android:id="@+id/next_button"
-                android:layout_width="64dp"
-                android:layout_height="64dp"
-                android:src="@drawable/ic_skip_next"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="下一首"
-                app:tint="@android:color/white"
-                android:scaleType="fitCenter"
-                android:layout_marginStart="@dimen/spacing_medium" />
+            <!-- 右侧控制区 -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="horizontal"
+                android:gravity="start">
 
-            <ImageButton
-                android:id="@+id/volume_button"
-                android:layout_width="@dimen/icon_button_size"
-                android:layout_height="@dimen/icon_button_size"
-                android:src="@android:drawable/ic_lock_silent_mode_off"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="音量"
-                app:tint="@android:color/white"
-                android:layout_marginStart="@dimen/spacing_large" />
+                <ImageButton
+                    android:id="@+id/next_button"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:src="@drawable/ic_skip_next"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="下一首"
+                    app:tint="@android:color/white"
+                    android:scaleType="fitCenter"
+                    android:layout_marginStart="@dimen/spacing_medium" />
 
-            <ImageButton
-                android:id="@+id/playlist_button"
-                android:layout_width="@dimen/icon_button_size"
-                android:layout_height="@dimen/icon_button_size"
-                android:src="@drawable/ic_playlist"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="播放列表"
-                app:tint="@android:color/white"
-                android:layout_marginStart="@dimen/spacing_large" />
+                <ImageButton
+                    android:id="@+id/volume_button"
+                    android:layout_width="@dimen/icon_button_size"
+                    android:layout_height="@dimen/icon_button_size"
+                    android:src="@android:drawable/ic_lock_silent_mode_off"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="音量"
+                    app:tint="@android:color/white"
+                    android:layout_marginStart="@dimen/spacing_large" />
+
+                <ImageButton
+                    android:id="@+id/playlist_button"
+                    android:layout_width="@dimen/icon_button_size"
+                    android:layout_height="@dimen/icon_button_size"
+                    android:src="@drawable/ic_playlist"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="播放列表"
+                    app:tint="@android:color/white"
+                    android:layout_marginStart="@dimen/spacing_small" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
