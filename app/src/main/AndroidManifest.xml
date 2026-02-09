@@ -7,12 +7,20 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     
     <!-- 存储权限（读取本地缓存） -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- 读存储权限（Android 12及以下，Android 13+使用细粒度媒体权限） -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- 写存储权限（Android 9及以下，Android 10+需使用MediaStore API） -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    
+    <!-- 媒体权限（Android 13+） - 仅音频 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     
     <!-- 后台播放权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    
+    <!-- 通知权限（Android 13+） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".CarPlayerApplication"
@@ -31,7 +39,8 @@
             android:name=".SplashActivity"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.BaiduCarPlayer.NoActionBar">
+            android:theme="@style/Theme.BaiduCarPlayer.NoActionBar"
+            tools:ignore="LockedOrientationActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -43,31 +52,36 @@
             android:exported="false"
             android:launchMode="singleTask"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.CarPlayer.NoActionBar" />
+            android:theme="@style/Theme.CarPlayer.NoActionBar"
+            tools:ignore="LockedOrientationActivity" />
             
         <activity
             android:name=".LoginActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.CarPlayer.NoActionBar" />
+            android:theme="@style/Theme.CarPlayer.NoActionBar"
+            tools:ignore="LockedOrientationActivity" />
             
         <activity
             android:name=".SongListActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.CarPlayer.NoActionBar" />
+            android:theme="@style/Theme.CarPlayer.NoActionBar"
+            tools:ignore="LockedOrientationActivity" />
             
         <activity
             android:name=".PlayerActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.CarPlayer.NoActionBar" />
+            android:theme="@style/Theme.CarPlayer.NoActionBar"
+            tools:ignore="LockedOrientationActivity" />
             
         <activity
             android:name=".FileBrowserActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.CarPlayer.NoActionBar" />
+            android:theme="@style/Theme.CarPlayer.NoActionBar"
+            tools:ignore="LockedOrientationActivity" />
             
         <!-- 音频播放服务 -->
         <service

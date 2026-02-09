@@ -14,15 +14,18 @@ import android.media.AudioManager;
 import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
-import android.os.Handler;
 import android.os.Looper;
-import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
+import android.annotation.SuppressLint;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
-import androidx.media.session.MediaButtonReceiver;
+import androidx.core.app.NotificationManagerCompat;
 import com.baidu.carplayer.MainActivity;
 import com.baidu.carplayer.R;
 import com.baidu.carplayer.auth.BaiduAuthService;
@@ -37,6 +40,9 @@ import androidx.media3.exoplayer.DefaultRenderersFactory;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
+import androidx.annotation.OptIn;
+import androidx.media3.common.util.UnstableApi;
+
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,6 +55,7 @@ import retrofit2.Response;
  * 音频播放服务 - 使用Media3(ExoPlayer)实现音频播放
  * Media3提供更好的性能和更完善的格式支持，包括ALAC
  */
+@OptIn(markerClass = UnstableApi.class)
 public class AudioPlayerService extends Service {
     
     private static final String TAG = "AudioPlayerService";
@@ -233,7 +240,7 @@ public class AudioPlayerService extends Service {
             }
             
             @Override
-            public void onPlayerError(PlaybackException error) {
+            public void onPlayerError(@NonNull PlaybackException error) {
                 Log.e(TAG, "========== 播放错误 ==========");
                 Log.e(TAG, "错误代码: " + error.errorCode);
                 Log.e(TAG, "错误信息: " + error.getMessage());
@@ -249,8 +256,8 @@ public class AudioPlayerService extends Service {
             }
             
             @Override
-            public void onPositionDiscontinuity(Player.PositionInfo oldPosition,
-                                               Player.PositionInfo newPosition,
+            public void onPositionDiscontinuity(@NonNull Player.PositionInfo oldPosition,
+                                               @NonNull Player.PositionInfo newPosition,
                                                int reason) {
                 if (playbackStateListener != null) {
                     playbackStateListener.onPositionDiscontinuity();
@@ -267,18 +274,16 @@ public class AudioPlayerService extends Service {
     private void setupAudioFocus() {
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build();
-            
-            audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                    .setAudioAttributes(audioAttributes)
-                    .setAcceptsDelayedFocusGain(true)
-                    .setOnAudioFocusChangeListener(audioFocusChangeListener)
-                    .build();
-        }
+        AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build();
+        
+        audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(audioAttributes)
+                .setAcceptsDelayedFocusGain(true)
+                .setOnAudioFocusChangeListener(audioFocusChangeListener)
+                .build();
     }
     
     /**
@@ -286,8 +291,6 @@ public class AudioPlayerService extends Service {
      */
     private void setupMediaSession() {
         mediaSession = new MediaSessionCompat(this, "AudioPlayerService");
-        mediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS |
-                MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
         mediaSession.setCallback(new MediaSessionCallback());
         
         // 设置初始播放状态
@@ -365,28 +368,15 @@ public class AudioPlayerService extends Service {
      * 请求音频焦点
      */
     private boolean requestAudioFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            int result = audioManager.requestAudioFocus(audioFocusRequest);
-            return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
-        } else {
-            int result = audioManager.requestAudioFocus(
-                    audioFocusChangeListener,
-                    AudioManager.STREAM_MUSIC,
-                    AudioManager.AUDIOFOCUS_GAIN
-            );
-            return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
-        }
+        int result = audioManager.requestAudioFocus(audioFocusRequest);
+        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
     }
     
     /**
      * 放弃音频焦点
      */
     private void abandonAudioFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioManager.abandonAudioFocusRequest(audioFocusRequest);
-        } else {
-            audioManager.abandonAudioFocus(audioFocusChangeListener);
-        }
+        audioManager.abandonAudioFocusRequest(audioFocusRequest);
     }
     
     /**
@@ -459,12 +449,9 @@ public class AudioPlayerService extends Service {
             }
             
             // 检查设备音量
-            try {
-                float deviceVolume = exoPlayer.getDeviceVolume();
-                Log.d(TAG, "设备音量: " + deviceVolume);
-            } catch (Exception e) {
-                Log.d(TAG, "设备音量: 无法获取 (可能不支持)");
-            }
+            // 注意：Media3 ExoPlayer 没有 getDeviceVolume() 方法
+            // 如需获取设备音量，应使用 AudioManager
+            Log.d(TAG, "设备音量: 通过 AudioManager 已在上方输出");
             
             // 添加播放状态检查
             Log.d(TAG, "========== 播放启动检查 ==========");
@@ -581,7 +568,7 @@ public class AudioPlayerService extends Service {
             .getFileDownloadLink("filemetas", accessToken, fsidsJson, 1)  // 添加 dlink=1 参数
             .enqueue(new Callback<DownloadLinkResponse>() {
                 @Override
-                public void onResponse(Call<DownloadLinkResponse> call, Response<DownloadLinkResponse> response) {
+                public void onResponse(@NonNull Call<DownloadLinkResponse> call, @NonNull Response<DownloadLinkResponse> response) {
                     if (response.isSuccessful() && response.body() != null) {
                         DownloadLinkResponse downloadResponse = response.body();
                         // 下载链接在 list 数组的第一个元素中
@@ -615,7 +602,7 @@ public class AudioPlayerService extends Service {
                 }
                 
                 @Override
-                public void onFailure(Call<DownloadLinkResponse> call, Throwable t) {
+                public void onFailure(@NonNull Call<DownloadLinkResponse> call, @NonNull Throwable t) {
                     Log.e(TAG, "获取下载链接网络请求失败", t);
                     if (playbackStateListener != null) {
                         playbackStateListener.onPlayerError(
@@ -809,7 +796,7 @@ public class AudioPlayerService extends Service {
      * 是否正在播放
      */
     public boolean isPlaying() {
-        return exoPlayer.isPlaying();
+        return exoPlayer.getPlayWhenReady() && exoPlayer.getPlaybackState() == Player.STATE_READY;
     }
     
     /**
@@ -823,17 +810,15 @@ public class AudioPlayerService extends Service {
      * 创建通知渠道
      */
     private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID,
-                    "音频播放",
-                    NotificationManager.IMPORTANCE_LOW
-            );
-            channel.setDescription("音频播放控制通知");
-            
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            manager.createNotificationChannel(channel);
-        }
+        NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID,
+                "音频播放",
+                NotificationManager.IMPORTANCE_LOW
+        );
+        channel.setDescription("音频播放控制通知");
+        
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        manager.createNotificationChannel(channel);
     }
     
     /**
@@ -861,8 +846,15 @@ public class AudioPlayerService extends Service {
     /**
      * 更新通知
      */
+    @SuppressLint("MissingPermission")
     private void updateNotification() {
-        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                return;
+            }
+        }
+        
+        NotificationManagerCompat manager = NotificationManagerCompat.from(this);
         manager.notify(NOTIFICATION_ID, createNotification());
     }
     
