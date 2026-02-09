@@ -4,6 +4,10 @@ import androidx.room.Entity;
 import androidx.room.Ignore;
 import androidx.room.PrimaryKey;
 
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+
 /**
  * 歌曲实体类
  */
@@ -120,5 +124,63 @@ public class Song {
     // 添加getId方法用于适配器
     public long getId() {
         return fsId;
+    }
+    
+    /**
+     * 从完整路径中提取目录路径
+     * 例如：/music/album1/song.mp3 -> /music/album1
+     */
+    public static String getDirectoryPath(String fullPath) {
+        if (fullPath == null || fullPath.isEmpty()) {
+            return "";
+        }
+        int lastSlash = fullPath.lastIndexOf('/');
+        if (lastSlash > 0) {
+            return fullPath.substring(0, lastSlash);
+        }
+        return "";
+    }
+    
+    /**
+     * 按路径和歌曲标题排序
+     * 先按路径（文件夹）排序，保证同一文件夹的歌曲在一起
+     * 然后在同一文件夹内按标题排序
+     * @param songs 歌曲列表
+     * @param ascending true为正序，false为倒序
+     */
+    public static void sortSongs(List<Song> songs, boolean ascending) {
+        Collections.sort(songs, new Comparator<Song>() {
+            @Override
+            public int compare(Song s1, Song s2) {
+                // 获取文件夹路径（去掉文件名）
+                String dir1 = getDirectoryPath(s1.getPath());
+                String dir2 = getDirectoryPath(s2.getPath());
+                
+                // 先按文件夹路径排序
+                int dirCompare = dir1.compareToIgnoreCase(dir2);
+                if (dirCompare != 0) {
+                    return ascending ? dirCompare : -dirCompare;
+                }
+                
+                // 同一文件夹内按标题排序
+                int titleCompare = s1.getTitle().compareToIgnoreCase(s2.getTitle());
+                return ascending ? titleCompare : -titleCompare;
+            }
+        });
+    }
+    
+    /**
+     * 根据歌曲ID在列表中查找位置
+     * @param songs 歌曲列表
+     * @param songId 歌曲ID
+     * @return 歌曲在列表中的位置，如果未找到返回-1
+     */
+    public static int findSongPosition(List<Song> songs, long songId) {
+        for (int i = 0; i < songs.size(); i++) {
+            if (songs.get(i).getFsId() == songId) {
+                return i;
+            }
+        }
+        return -1;
     }
 }

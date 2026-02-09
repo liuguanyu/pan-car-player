@@ -14,6 +14,8 @@ import com.baidu.carplayer.R;
 import com.baidu.carplayer.model.Song;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -61,6 +63,17 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
                 }
             }
         }
+    }
+
+    /**
+     * 按路径和歌曲标题排序
+     * 先按路径（文件夹）排序，保证同一文件夹的歌曲在一起
+     * 然后在同一文件夹内按标题排序
+     * @param ascending true为正序，false为倒序
+     */
+    public void sortByTitle(boolean ascending) {
+        Song.sortSongs(songs, ascending);
+        notifyDataSetChanged();
     }
 
     @NonNull

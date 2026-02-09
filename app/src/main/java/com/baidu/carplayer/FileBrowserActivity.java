@@ -43,6 +43,7 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
     private TextView currentPathText;
     private TextView selectedCountText;
     private ImageButton backButton;
+    private ImageButton sortButton;
     private MaterialButton selectAllButton;
     private MaterialButton addButton;
     private MaterialButton clearSelectionButton;
@@ -57,6 +58,7 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
     private PlaylistManager playlistManager;
     private BaiduPanService baiduPanService;
     private String accessToken;
+    private boolean sortAscending = true; // 排序状态：true为正序，false为倒序
     
     // 用于递归扫描文件夹
     private int pendingScans = 0;
@@ -85,6 +87,7 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
         currentPathText = findViewById(R.id.current_path);
         selectedCountText = findViewById(R.id.selected_count);
         backButton = findViewById(R.id.back_button);
+        sortButton = findViewById(R.id.sort_button);
         selectAllButton = findViewById(R.id.select_all_button);
         addButton = findViewById(R.id.add_button);
         clearSelectionButton = findViewById(R.id.clear_selection_button);
@@ -102,6 +105,7 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
 
         // 设置按钮点击事件
         backButton.setOnClickListener(v -> navigateUp());
+        sortButton.setOnClickListener(v -> toggleSortOrder());
         selectAllButton.setOnClickListener(v -> toggleSelectAll());
         addButton.setOnClickListener(v -> addSelectedFiles());
         clearSelectionButton.setOnClickListener(v -> clearSelection());
@@ -187,6 +191,8 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
             hideLoading();
             currentPathText.setText(currentPath);
             fileAdapter.setFiles(files);
+            // 应用当前的排序设置
+            fileAdapter.sortByName(sortAscending);
 
             if (files.isEmpty()) {
                 showEmpty();
@@ -211,6 +217,21 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
         }
 
         loadFiles();
+    }
+
+    /**
+     * 切换排序顺序
+     */
+    private void toggleSortOrder() {
+        sortAscending = !sortAscending;
+        // 更新排序按钮图标
+        if (sortAscending) {
+            sortButton.setImageResource(android.R.drawable.ic_menu_sort_by_size);
+        } else {
+            sortButton.setImageResource(android.R.drawable.ic_menu_sort_alphabetically);
+        }
+        // 对当前文件列表进行排序
+        fileAdapter.sortByName(sortAscending);
     }
 
     private void toggleSelectAll() {

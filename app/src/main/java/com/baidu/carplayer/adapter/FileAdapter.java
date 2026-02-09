@@ -14,6 +14,8 @@ import com.baidu.carplayer.R;
 import com.baidu.carplayer.model.FileItem;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -115,6 +117,27 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
             }
         }
         return count;
+    }
+
+    /**
+     * 按文件名排序
+     * @param ascending true为正序，false为倒序
+     */
+    public void sortByName(boolean ascending) {
+        Collections.sort(files, new Comparator<FileItem>() {
+            @Override
+            public int compare(FileItem f1, FileItem f2) {
+                // 文件夹始终排在前面
+                if (f1.getIsdir() != f2.getIsdir()) {
+                    return f1.getIsdir() == 1 ? -1 : 1;
+                }
+                
+                // 同为文件夹或同为文件时，按文件名排序
+                int result = f1.getServerFilename().compareToIgnoreCase(f2.getServerFilename());
+                return ascending ? result : -result;
+            }
+        });
+        notifyDataSetChanged();
     }
 
     class FileViewHolder extends RecyclerView.ViewHolder {

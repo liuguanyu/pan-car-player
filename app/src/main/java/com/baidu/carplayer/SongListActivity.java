@@ -47,10 +47,12 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
     private ImageButton shuffleButton;
     private ImageButton nowPlayingButton;
     private ImageButton refreshButton;
+    private ImageButton sortButton;
 
     private String playlistId;
     private String playlistName;
     private List<Song> currentSongs;
+    private boolean sortAscending = true; // 排序状态：true为正序，false为倒序
     
     private BaiduPanService baiduPanService;
     private String accessToken;
@@ -141,6 +143,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         shuffleButton = findViewById(R.id.shuffle_button);
         nowPlayingButton = findViewById(R.id.now_playing_button);
         refreshButton = findViewById(R.id.refresh_button);
+        sortButton = findViewById(R.id.sort_button);
 
         // 设置标题
         if (playlistName != null) {
@@ -165,8 +168,24 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         shuffleButton.setOnClickListener(v -> shufflePlay());
         nowPlayingButton.setOnClickListener(v -> openCurrentPlayer());
         refreshButton.setOnClickListener(v -> refreshPlaylist());
+        sortButton.setOnClickListener(v -> toggleSortOrder());
         
         findViewById(R.id.add_songs_empty_button).setOnClickListener(v -> openFileBrowser());
+    }
+
+    /**
+     * 切换排序顺序
+     */
+    private void toggleSortOrder() {
+        sortAscending = !sortAscending;
+        // 更新排序按钮图标
+        if (sortAscending) {
+            sortButton.setImageResource(android.R.drawable.ic_menu_sort_by_size);
+        } else {
+            sortButton.setImageResource(android.R.drawable.ic_menu_sort_alphabetically);
+        }
+        // 对当前歌曲列表进行排序
+        songAdapter.sortByTitle(sortAscending);
     }
     
     private void checkNowPlayingStatus() {
@@ -209,6 +228,8 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
                 runOnUiThread(() -> {
                     currentSongs = songs;
                     songAdapter.setSongs(songs);
+                    // 应用当前的排序设置
+                    songAdapter.sortByTitle(sortAscending);
                     
                     // 显示或隐藏空状态
                     if (songs.isEmpty()) {
@@ -329,18 +350,20 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
 
        // 随机选择一首歌曲开始播放
         int randomPosition = (int) (Math.random() * currentSongs.size());
-        openPlayerActivity(randomPosition, true);
+        long songId = currentSongs.get(randomPosition).getFsId();
+        openPlayerActivity(songId, true);
     }
 
-    private void openPlayerActivity(int position) {
-        openPlayerActivity(position, false);
+    private void openPlayerActivity(long songId) {
+        openPlayerActivity(songId, false);
     }
 
-    private void openPlayerActivity(int position, boolean shuffle) {
+    private void openPlayerActivity(long songId, boolean shuffle) {
         Intent intent = new Intent(this, PlayerActivity.class);
         intent.putExtra(PlayerActivity.EXTRA_PLAYLIST_ID, playlistId);
         intent.putExtra(PlayerActivity.EXTRA_PLAYLIST_NAME, playlistName);
-        intent.putExtra(PlayerActivity.EXTRA_POSITION, position);
+        intent.putExtra(PlayerActivity.EXTRA_SONG_ID, songId);
+        intent.putExtra(PlayerActivity.EXTRA_SORT_ASCENDING, sortAscending);
         if (shuffle) {
             intent.putExtra("EXTRA_SHUFFLE_MODE", true);
         }
@@ -349,14 +372,14 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
 
     @Override
     public void onSongClick(Song song, int position) {
-        // 打开播放页面
-        openPlayerActivity(position);
+        // 打开播放页面，传递歌曲ID和排序状态
+        openPlayerActivity(song.getFsId());
     }
 
     @Override
     public void onPlayFromHereClick(Song song, int position) {
-        // 从这首歌曲开始播放
-        openPlayerActivity(position);
+        // 从这首歌曲开始播放，传递歌曲ID和排序状态
+        openPlayerActivity(song.getFsId());
     }
 
     @Override

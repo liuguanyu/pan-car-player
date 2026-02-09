@@ -55,6 +55,8 @@ public class PlayerActivity extends AppCompatActivity {
     public static final String EXTRA_PLAYLIST_ID = "playlist_id";
     public static final String EXTRA_PLAYLIST_NAME = "playlist_name";
     public static final String EXTRA_POSITION = "position";
+    public static final String EXTRA_SONG_ID = "song_id";
+    public static final String EXTRA_SORT_ASCENDING = "sort_ascending";
     public static final String EXTRA_RESUME_PLAYBACK = "resume_playback";
 
     // UI组件
@@ -104,6 +106,8 @@ public class PlayerActivity extends AppCompatActivity {
     private String playlistId;
     private String playlistName;
     private int currentPosition;
+    private long songId; // 要播放的歌曲ID
+    private boolean sortAscending = true; // 排序状态
     private List<Song> playlistSongs;
     private Song currentSong;
     private boolean volumeControlVisible = false;
@@ -170,6 +174,8 @@ public class PlayerActivity extends AppCompatActivity {
         playlistId = getIntent().getStringExtra(EXTRA_PLAYLIST_ID);
         playlistName = getIntent().getStringExtra(EXTRA_PLAYLIST_NAME);
         currentPosition = getIntent().getIntExtra(EXTRA_POSITION, 0);
+        songId = getIntent().getLongExtra(EXTRA_SONG_ID, -1);
+        sortAscending = getIntent().getBooleanExtra(EXTRA_SORT_ASCENDING, true);
         final boolean shuffleMode = getIntent().getBooleanExtra("EXTRA_SHUFFLE_MODE", false);
         final boolean resumePlayback = getIntent().getBooleanExtra(EXTRA_RESUME_PLAYBACK, false);
 
@@ -380,10 +386,24 @@ public class PlayerActivity extends AppCompatActivity {
 
                     playlistSongs = songs;
 
+                    // 应用与SongListActivity相同的排序规则
+                    Song.sortSongs(playlistSongs, sortAscending);
+
+                    // 确定要播放的位置
+                    int positionToPlay = currentPosition;
+                    if (songId != -1) {
+                        // 如果传入了歌曲ID，找到该歌曲在排序后列表中的位置
+                        positionToPlay = Song.findSongPosition(playlistSongs, songId);
+                        if (positionToPlay == -1) {
+                            // 如果找不到歌曲，使用默认位置
+                            positionToPlay = 0;
+                        }
+                    }
+
                     // 设置播放列表到服务
                     if (serviceBound) {
-                        audioPlayerService.setPlaylist(songs);
-                        audioPlayerService.playAtPosition(currentPosition);
+                        audioPlayerService.setPlaylist(playlistSongs);
+                        audioPlayerService.playAtPosition(positionToPlay);
 
                         // 更新UI
                         updatePlayerState();
