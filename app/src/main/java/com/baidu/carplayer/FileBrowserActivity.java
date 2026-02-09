@@ -9,7 +9,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.adapter.FileAdapter;
@@ -96,9 +96,8 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
         loadingLayout = findViewById(R.id.loading_layout);
         emptyLayout = findViewById(R.id.empty_layout);
 
-        // 设置RecyclerView为宫格布局
-        GridLayoutManager gridLayoutManager = new GridLayoutManager(this, 4);
-        fileRecyclerView.setLayoutManager(gridLayoutManager);
+        // 设置RecyclerView为列表布局
+        fileRecyclerView.setLayoutManager(new LinearLayoutManager(this));
         fileAdapter = new FileAdapter();
         fileAdapter.setOnFileClickListener(this);
         fileRecyclerView.setAdapter(fileAdapter);

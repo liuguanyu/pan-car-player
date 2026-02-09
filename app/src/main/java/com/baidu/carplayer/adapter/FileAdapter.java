@@ -196,6 +196,14 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
         public void bind(FileItem file) {
             fileName.setText(file.getServerFilename());
             
+            // 设置斑马纹背景
+            int position = getAdapterPosition();
+            if (position % 2 == 0) {
+                itemView.setBackgroundColor(0xFF1E1E1E); // 深色
+            } else {
+                itemView.setBackgroundColor(0xFF2A2A2A); // 稍浅色
+            }
+            
             boolean isSelected = selectedFiles.containsKey(file.getFsId()) && selectedFiles.get(file.getFsId());
             
             // 设置选中状态图标

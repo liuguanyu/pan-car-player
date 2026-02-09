@@ -1,80 +1,81 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="4dp"
-    app:cardCornerRadius="12dp"
-    app:cardElevation="4dp"
-    app:cardBackgroundColor="@color/car_surface">
+    android:orientation="horizontal"
+    android:paddingStart="@dimen/spacing_normal"
+    android:paddingEnd="@dimen/spacing_small"
+    android:paddingTop="@dimen/spacing_small"
+    android:paddingBottom="@dimen/spacing_small"
+    android:gravity="center_vertical"
+    android:minHeight="65dp">
+
+    <!-- 图标区域 -->
+    <FrameLayout
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_marginEnd="@dimen/spacing_normal">
+
+        <ImageView
+            android:id="@+id/file_icon"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:src="@android:drawable/ic_menu_agenda"
+            android:contentDescription="File Icon"
+            android:scaleType="fitCenter"
+            android:padding="4dp" />
+
+        <!-- 选中状态图标 -->
+        <ImageView
+            android:id="@+id/selected_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_gravity="bottom|end"
+            android:src="@android:drawable/checkbox_on_background"
+            android:contentDescription="Selected"
+            android:visibility="gone"
+            app:tint="@color/car_primary"
+            android:background="@drawable/bg_circle_button" />
+
+        <!-- 复选框（保留ID但不显示，逻辑中已移除） -->
+        <CheckBox
+            android:id="@+id/file_checkbox"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone" />
+
+    </FrameLayout>
 
     <LinearLayout
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="8dp"
-        android:gravity="center">
-
-        <!-- 图标区域 -->
-        <FrameLayout
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_marginBottom="8dp">
-
-            <ImageView
-                android:id="@+id/file_icon"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:src="@android:drawable/ic_menu_agenda"
-                android:contentDescription="File Icon"
-                android:scaleType="fitCenter"
-                android:padding="8dp" />
-
-            <!-- 复选框覆盖在图标右上角（仅音频文件使用） -->
-            <CheckBox
-                android:id="@+id/file_checkbox"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="top|end"
-                android:buttonTint="@color/car_primary"
-                android:visibility="gone" />
-
-            <!-- 选中状态图标（文件夹使用） -->
-            <ImageView
-                android:id="@+id/selected_icon"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_gravity="top|end"
-                android:src="@android:drawable/checkbox_on_background"
-                android:contentDescription="Selected"
-                android:visibility="gone"
-                android:padding="4dp" />
-
-        </FrameLayout>
+        android:layout_weight="1"
+        android:orientation="vertical">
 
         <!-- 文件名 -->
         <TextView
             android:id="@+id/file_name"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_size_medium"
             android:textColor="@color/car_text_primary"
-            android:textAlignment="center"
-            android:maxLines="2"
+            android:textStyle="bold"
+            android:singleLine="true"
             android:ellipsize="end"
-            android:layout_marginBottom="2dp" />
+            android:text="文件名" />
 
         <!-- 文件大小 -->
         <TextView
             android:id="@+id/file_size"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_size_small"
             android:textColor="@color/car_text_secondary"
-            android:textAlignment="center"
-            android:maxLines="1"
-            android:ellipsize="end" />
+            android:layout_marginTop="2dp"
+            android:singleLine="true"
+            android:text="0 KB" />
 
     </LinearLayout>
 
-</androidx.cardview.widget.CardView>
+</LinearLayout>

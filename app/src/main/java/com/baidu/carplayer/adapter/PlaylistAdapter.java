@@ -138,7 +138,12 @@ public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.Playli
             if (position == selectedPosition) {
                 itemView.setBackgroundColor(itemView.getContext().getColor(R.color.list_item_selected));
             } else {
-                itemView.setBackgroundColor(itemView.getContext().getColor(R.color.list_item_background));
+                // 斑马纹效果
+                if (position % 2 == 0) {
+                    itemView.setBackgroundColor(0xFF1E1E1E); // 深色
+                } else {
+                    itemView.setBackgroundColor(0xFF2A2A2A); // 稍浅色
+                }
             }
         }
     }

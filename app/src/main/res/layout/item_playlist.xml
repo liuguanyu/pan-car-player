@@ -9,8 +9,7 @@
     android:paddingTop="@dimen/spacing_small"
     android:paddingBottom="@dimen/spacing_small"
     android:gravity="center_vertical"
-    android:minHeight="65dp"
-    android:background="?attr/selectableItemBackground">
+    android:minHeight="65dp">
 
     <TextView
         android:id="@+id/playlist_icon"
