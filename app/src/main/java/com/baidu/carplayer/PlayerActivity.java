@@ -983,7 +983,13 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
-        // 如果是从恢复播放模式进入（即从SplashActivity直接跳转过来）
+        // 如果不是任务栈的根Activity，说明下面还有Activity（如SongListActivity），直接返回即可
+        if (!isTaskRoot()) {
+            super.onBackPressed();
+            return;
+        }
+
+        // 如果是从恢复播放模式进入（即从SplashActivity直接跳转过来），且是根Activity
         if (getIntent().getBooleanExtra(EXTRA_RESUME_PLAYBACK, false)) {
             // 获取当前歌曲所属的播放列表
             if (serviceBound && audioPlayerService != null) {
