@@ -25,6 +25,7 @@ public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.Playli
     public interface OnPlaylistClickListener {
         void onPlaylistClick(Playlist playlist, int position);
         void onPlaylistMoreClick(Playlist playlist, int position);
+        void onPlaylistLongClick(Playlist playlist, int position);
     }
 
     public void setOnPlaylistClickListener(OnPlaylistClickListener listener) {
@@ -84,7 +85,7 @@ public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.Playli
     }
 
     class PlaylistViewHolder extends RecyclerView.ViewHolder {
-        private ImageView playlistIcon;
+        private TextView playlistIcon;
         private TextView playlistName;
         private TextView playlistCount;
         private ImageButton playlistMore;
@@ -102,6 +103,15 @@ public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.Playli
                     listener.onPlaylistClick(playlists.get(position), position);
                 }
             });
+            
+            itemView.setOnLongClickListener(v -> {
+                int position = getAdapterPosition();
+                if (listener != null && position != RecyclerView.NO_POSITION) {
+                    listener.onPlaylistLongClick(playlists.get(position), position);
+                    return true;
+                }
+                return false;
+            });
 
             playlistMore.setOnClickListener(v -> {
                 int position = getAdapterPosition();
@@ -114,6 +124,15 @@ public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.Playli
         public void bind(Playlist playlist, int position) {
             playlistName.setText(playlist.getName());
             playlistCount.setText(String.format("%d 首歌曲", playlist.getSongCount()));
+
+            // 设置播放列表名称的首字作为图标
+            String name = playlist.getName();
+            if (name != null && !name.isEmpty()) {
+                String firstChar = name.substring(0, 1);
+                playlistIcon.setText(firstChar);
+            } else {
+                playlistIcon.setText("?");
+            }
 
             // 高亮选中的播放列表
             if (position == selectedPosition) {

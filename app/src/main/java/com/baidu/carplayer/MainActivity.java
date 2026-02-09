@@ -17,10 +17,10 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.baidu.carplayer.adapter.PlaylistGridAdapter;
+import com.baidu.carplayer.adapter.PlaylistAdapter;
 import com.baidu.carplayer.auth.BaiduAuthService;
 import com.baidu.carplayer.manager.PlaylistManager;
 import com.baidu.carplayer.model.AuthInfo;
@@ -36,10 +36,10 @@ import java.util.List;
 /**
  * 主页面 - 播放列表管理页面（矩阵网格布局）
  */
-public class MainActivity extends AppCompatActivity implements PlaylistGridAdapter.OnPlaylistClickListener {
+public class MainActivity extends AppCompatActivity implements PlaylistAdapter.OnPlaylistClickListener {
 
-    private RecyclerView playlistGridView;
-    private PlaylistGridAdapter playlistAdapter;
+    private RecyclerView playlistListView;
+    private PlaylistAdapter playlistAdapter;
     private PlaylistManager playlistManager;
     private ImageButton addPlaylistButton;
     private ImageButton nowPlayingButton;
@@ -117,19 +117,19 @@ public class MainActivity extends AppCompatActivity implements PlaylistGridAdapt
     }
 
     private void initViews() {
-        playlistGridView = findViewById(R.id.playlist_grid_view);
+        playlistListView = findViewById(R.id.playlist_list_view);
         addPlaylistButton = findViewById(R.id.add_playlist_button);
         nowPlayingButton = findViewById(R.id.now_playing_button);
         emptyState = findViewById(R.id.empty_state);
 
-        // 设置网格布局（3列）
-        GridLayoutManager gridLayoutManager = new GridLayoutManager(this, 3);
-        playlistGridView.setLayoutManager(gridLayoutManager);
+        // 设置列表布局
+        LinearLayoutManager layoutManager = new LinearLayoutManager(this);
+        playlistListView.setLayoutManager(layoutManager);
 
         // 设置适配器
-        playlistAdapter = new PlaylistGridAdapter();
+        playlistAdapter = new PlaylistAdapter();
         playlistAdapter.setOnPlaylistClickListener(this);
-        playlistGridView.setAdapter(playlistAdapter);
+        playlistListView.setAdapter(playlistAdapter);
 
         // 设置按钮点击事件
         addPlaylistButton.setOnClickListener(v -> showCreatePlaylistDialog());
@@ -181,10 +181,10 @@ public class MainActivity extends AppCompatActivity implements PlaylistGridAdapt
                     // 显示或隐藏空状态
                     if (playlists.isEmpty()) {
                         emptyState.setVisibility(View.VISIBLE);
-                        playlistGridView.setVisibility(View.GONE);
+                        playlistListView.setVisibility(View.GONE);
                     } else {
                         emptyState.setVisibility(View.GONE);
-                        playlistGridView.setVisibility(View.VISIBLE);
+                        playlistListView.setVisibility(View.VISIBLE);
                     }
                 });
             }
@@ -238,7 +238,7 @@ public class MainActivity extends AppCompatActivity implements PlaylistGridAdapt
     }
 
     @Override
-    public void onPlaylistClick(Playlist playlist) {
+    public void onPlaylistClick(Playlist playlist, int position) {
         // 打开歌曲列表页面
         Intent intent = new Intent(this, SongListActivity.class);
         intent.putExtra("playlist_id", playlist.getId());
@@ -247,7 +247,12 @@ public class MainActivity extends AppCompatActivity implements PlaylistGridAdapt
     }
 
     @Override
-    public void onPlaylistLongClick(Playlist playlist) {
+    public void onPlaylistMoreClick(Playlist playlist, int position) {
+        showPlaylistOptionsDialog(playlist);
+    }
+    
+    @Override
+    public void onPlaylistLongClick(Playlist playlist, int position) {
         showPlaylistOptionsDialog(playlist);
     }
 
