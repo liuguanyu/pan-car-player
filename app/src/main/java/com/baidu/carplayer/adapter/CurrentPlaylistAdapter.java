@@ -136,11 +136,13 @@ public class CurrentPlaylistAdapter extends RecyclerView.Adapter<CurrentPlaylist
 
     class ViewHolder extends RecyclerView.ViewHolder {
         private TextView songTitle;
+        private TextView songPath;
         private ImageButton songMore;
 
         public ViewHolder(@NonNull View itemView) {
             super(itemView);
             songTitle = itemView.findViewById(R.id.song_title);
+            songPath = itemView.findViewById(R.id.song_path);
             songMore = itemView.findViewById(R.id.song_more);
             
             // 隐藏更多按钮，在这里不需要
@@ -155,19 +157,31 @@ public class CurrentPlaylistAdapter extends RecyclerView.Adapter<CurrentPlaylist
         }
 
         public void bind(Song song) {
+            // 设置歌曲标题
             String displayText = song.getTitle();
             if (song.getArtist() != null && !song.getArtist().isEmpty() && !song.getArtist().equals("<unknown>")) {
                 displayText += " - " + song.getArtist();
             }
             songTitle.setText(displayText);
             
+            // 设置歌曲路径
+            if (songPath != null) {
+                songPath.setText(song.getPath());
+            }
+            
             // 显示播放状态
             if (song.getId() == currentPlayingSongId) {
                 songTitle.setTextColor(itemView.getContext().getColor(R.color.car_accent));
                 songTitle.setTextScaleX(1.05f);
+                if (songPath != null) {
+                    songPath.setTextColor(itemView.getContext().getColor(R.color.car_accent));
+                }
             } else {
                 songTitle.setTextColor(itemView.getContext().getColor(R.color.car_text_primary));
                 songTitle.setTextScaleX(1.0f);
+                if (songPath != null) {
+                    songPath.setTextColor(itemView.getContext().getColor(R.color.car_text_secondary));
+                }
             }
         }
     }

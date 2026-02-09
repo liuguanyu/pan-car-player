@@ -103,11 +103,13 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
 
     class SongViewHolder extends RecyclerView.ViewHolder {
         private TextView songTitle;
+        private TextView songPath;
         private ImageButton songMore;
 
         public SongViewHolder(@NonNull View itemView) {
             super(itemView);
             songTitle = itemView.findViewById(R.id.song_title);
+            songPath = itemView.findViewById(R.id.song_path);
             songMore = itemView.findViewById(R.id.song_more);
 
             itemView.setOnClickListener(v -> {
@@ -127,6 +129,7 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
 
         public void bind(Song song) {
             songTitle.setText(song.getTitle());
+            songPath.setText(song.getPath());
             
             // 显示播放状态
             if (song.getId() == currentPlayingSongId) {
