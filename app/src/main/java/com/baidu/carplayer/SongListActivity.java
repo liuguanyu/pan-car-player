@@ -59,6 +59,9 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
 
     private AudioPlayerService audioPlayerService;
     private boolean serviceBound = false;
+    
+    private long lastClickTime = 0;
+    private static final long CLICK_DELAY = 500; // 500毫秒防抖
 
     private ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -359,6 +362,12 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
     }
 
     private void openPlayerActivity(long songId, boolean shuffle) {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastClickTime < CLICK_DELAY) {
+            return;
+        }
+        lastClickTime = currentTime;
+
         Intent intent = new Intent(this, PlayerActivity.class);
         intent.putExtra(PlayerActivity.EXTRA_PLAYLIST_ID, playlistId);
         intent.putExtra(PlayerActivity.EXTRA_PLAYLIST_NAME, playlistName);

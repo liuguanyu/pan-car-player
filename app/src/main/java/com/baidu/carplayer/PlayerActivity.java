@@ -983,6 +983,12 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
+        // 如果播放列表可见，先关闭播放列表
+        if (playlistVisible) {
+            hidePlaylist();
+            return;
+        }
+        
         // 如果不是任务栈的根Activity，说明下面还有Activity（如SongListActivity），直接返回即可
         if (!isTaskRoot()) {
             super.onBackPressed();

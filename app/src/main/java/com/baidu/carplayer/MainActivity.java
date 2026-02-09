@@ -222,6 +222,12 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
                 runOnUiThread(() -> {
                     Toast.makeText(MainActivity.this, "播放列表已创建", Toast.LENGTH_SHORT).show();
                     loadPlaylists();
+
+                    // 直接跳转到文件浏览器添加歌曲
+                    if (result instanceof Playlist) {
+                        Playlist newPlaylist = (Playlist) result;
+                        openFileBrowser(newPlaylist.getId());
+                    }
                 });
             }
 
@@ -326,6 +332,12 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
                 runOnUiThread(() -> Toast.makeText(MainActivity.this, "重命名失败: " + error, Toast.LENGTH_SHORT).show());
             }
         });
+    }
+
+    private void openFileBrowser(String playlistId) {
+        Intent intent = new Intent(this, FileBrowserActivity.class);
+        intent.putExtra(FileBrowserActivity.EXTRA_PLAYLIST_ID, playlistId);
+        startActivity(intent);
     }
 
     private void showDeleteConfirmDialog(Playlist playlist) {

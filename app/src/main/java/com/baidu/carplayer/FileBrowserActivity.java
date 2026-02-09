@@ -80,6 +80,9 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
         initViews();
         initData();
         loadFiles();
+        
+        // 提示用户选择歌曲添加
+        Toast.makeText(this, "请选择文件或文件夹添加到播放列表", Toast.LENGTH_LONG).show();
     }
 
     private void initViews() {

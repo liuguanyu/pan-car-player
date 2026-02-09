@@ -29,14 +29,15 @@
         <!-- 选中状态图标 -->
         <ImageView
             android:id="@+id/selected_icon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
             android:layout_gravity="bottom|end"
-            android:src="@android:drawable/checkbox_on_background"
+            android:layout_marginEnd="0dp"
+            android:layout_marginBottom="0dp"
+            android:src="@drawable/ic_check_green"
             android:contentDescription="Selected"
             android:visibility="gone"
-            app:tint="@color/car_primary"
-            android:background="@drawable/bg_circle_button" />
+            android:scaleType="fitXY" />
 
         <!-- 复选框（保留ID但不显示，逻辑中已移除） -->
         <CheckBox
