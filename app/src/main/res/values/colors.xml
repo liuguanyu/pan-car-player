@@ -11,28 +11,28 @@
     
     <color name="primary_dark">#FF1976D2</color>
     
-    <!-- 车载应用主题色 -->
-    <color name="car_primary">#FF2196F3</color>
-    <color name="car_primary_dark">#FF1976D2</color>
-    <color name="car_accent">#FFFF9800</color>
-    <color name="car_background">#FF121212</color>
-    <color name="car_background_dark">#FF0A0A0A</color>
-    <color name="car_surface">#FF1E1E1E</color>
-    <color name="car_surface_highlight">#FF2D2D2D</color>
+    <!-- 车载应用主题色 - 基于 icon_extracted.png 配色 -->
+    <color name="car_primary">#FF29B6F6</color>
+    <color name="car_primary_dark">#FF0288D1</color>
+    <color name="car_accent">#FFFF5252</color>
+    <color name="car_background">#FF1A1A1A</color>
+    <color name="car_background_dark">#FF121212</color>
+    <color name="car_surface">#FF252525</color>
+    <color name="car_surface_highlight">#FF333333</color>
     <color name="car_text_primary">#FFFFFFFF</color>
     <color name="car_text_secondary">#FFB3B3B3</color>
     <color name="car_divider">#FF333333</color>
     <color name="card_background">#FF1E1E1E</color>
     
     <!-- 播放控制相关颜色 -->
-    <color name="playback_background">#FF1E1E1E</color>
+    <color name="playback_background">#FF252525</color>
     <color name="playback_controls">#FFFFFFFF</color>
-    <color name="playback_progress">#FF2196F3</color>
+    <color name="playback_progress">#FF29B6F6</color>
     <color name="playback_progress_background">#FF333333</color>
     
     <!-- 按钮颜色 -->
-    <color name="button_primary">#FF2196F3</color>
-    <color name="button_primary_pressed">#FF1976D2</color>
+    <color name="button_primary">#FF29B6F6</color>
+    <color name="button_primary_pressed">#FF0288D1</color>
     <color name="button_secondary">#FF666666</color>
     <color name="button_secondary_pressed">#FF444444</color>
     
@@ -42,8 +42,8 @@
     <color name="status_error">#FFF44336</color>
     
     <!-- 列表项颜色 -->
-    <color name="list_item_background">#FF1E1E1E</color>
-    <color name="list_item_background_alt">#FF252525</color>
-    <color name="list_item_selected">#FF333333</color>
-    <color name="list_item_pressed">#FF2A2A2A</color>
+    <color name="list_item_background">#FF252525</color>
+    <color name="list_item_background_alt">#FF2D2D2D</color>
+    <color name="list_item_selected">#FF3A3A3A</color>
+    <color name="list_item_pressed">#FF333333</color>
 </resources>
