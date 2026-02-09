@@ -14,6 +14,8 @@ import android.media.AudioManager;
 import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.Handler;
+import android.os.Looper;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
@@ -57,6 +59,7 @@ public class AudioPlayerService extends Service {
     private static final String KEY_CURRENT_POSITION = "current_position";
     private static final String KEY_PLAYBACK_PROGRESS = "playback_progress";
     private static final String KEY_PLAY_MODE = "play_mode";
+    private static final String KEY_IS_PLAYING = "is_playing";
     
     private ExoPlayer exoPlayer;
     private AudioFocusRequest audioFocusRequest;
@@ -81,6 +84,20 @@ public class AudioPlayerService extends Service {
     
     // 待处理的seek位置（用于冷启动恢复播放进度）
     private Long pendingSeekPosition = null;
+    
+    // 定时保存进度
+    private final android.os.Handler progressSaveHandler = new android.os.Handler(Looper.getMainLooper());
+    private static final long PROGRESS_SAVE_INTERVAL = 5000; // 每5秒保存一次进度
+    
+    private final Runnable progressSaveRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (exoPlayer != null && exoPlayer.getPlayWhenReady() && exoPlayer.getPlaybackState() == Player.STATE_READY) {
+                savePlaybackState();
+                progressSaveHandler.postDelayed(this, PROGRESS_SAVE_INTERVAL);
+            }
+        }
+    };
     
     /**
      * 播放模式枚举
@@ -199,11 +216,14 @@ public class AudioPlayerService extends Service {
             
             @Override
             public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
-                // 当播放状态改变时保存播放进度
-                if (!playWhenReady) {
-                    // 暂停时保存状态
-                    savePlaybackState();
-                    Log.d(TAG, "暂停播放，保存播放状态");
+                // 当播放状态改变时保存播放状态（包括播放/暂停状态）
+                savePlaybackState();
+                Log.d(TAG, "播放状态改变，保存状态: playWhenReady=" + playWhenReady);
+                
+                if (playWhenReady) {
+                    startProgressSave();
+                } else {
+                    stopProgressSave();
                 }
                 
                 if (playbackStateListener != null) {
@@ -466,6 +486,7 @@ public class AudioPlayerService extends Service {
     public void play() {
         if (requestAudioFocus()) {
             exoPlayer.play();
+            savePlaybackState(); // 开始播放时保存状态
         }
     }
     
@@ -721,6 +742,7 @@ public class AudioPlayerService extends Service {
      */
     public void pause() {
         exoPlayer.pause();
+        savePlaybackState(); // 暂停时保存状态
     }
     
     /**
@@ -874,6 +896,7 @@ public class AudioPlayerService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        stopProgressSave();
         savePlaybackState(); // 在服务销毁前保存状态
         if (exoPlayer != null) {
             exoPlayer.release();
@@ -907,8 +930,12 @@ public class AudioPlayerService extends Service {
         // 保存播放模式
         editor.putString(KEY_PLAY_MODE, playMode.name());
         
+        // 保存播放状态（是否正在播放）
+        boolean isPlaying = exoPlayer != null && exoPlayer.getPlayWhenReady();
+        editor.putBoolean(KEY_IS_PLAYING, isPlaying);
+        
         editor.apply();
-        Log.d(TAG, "播放状态已保存: position=" + currentPosition + ", mode=" + playMode);
+        Log.d(TAG, "播放状态已保存: position=" + currentPosition + ", mode=" + playMode + ", isPlaying=" + isPlaying);
     }
     
     /**
@@ -974,5 +1001,14 @@ public class AudioPlayerService extends Service {
         public AudioPlayerService getService() {
             return AudioPlayerService.this;
         }
+    }
+    
+    private void startProgressSave() {
+        progressSaveHandler.removeCallbacks(progressSaveRunnable);
+        progressSaveHandler.postDelayed(progressSaveRunnable, PROGRESS_SAVE_INTERVAL);
+    }
+    
+    private void stopProgressSave() {
+        progressSaveHandler.removeCallbacks(progressSaveRunnable);
     }
 }

@@ -52,14 +52,15 @@ public class SplashActivity extends AppCompatActivity {
                 // 检查是否有保存的播放状态
                 SharedPreferences prefs = getSharedPreferences("AudioPlayerPrefs", MODE_PRIVATE);
                 boolean hasSavedState = prefs.contains("playlist");
-                Log.d(TAG, "Has saved state: " + hasSavedState);
+                boolean isPlaying = prefs.getBoolean("is_playing", false);
+                Log.d(TAG, "Has saved state: " + hasSavedState + ", Is playing: " + isPlaying);
                 
-                if (hasSavedState) {
-                    // 有保存的播放状态，直接跳转到播放界面
+                if (hasSavedState && isPlaying) {
+                    // 有保存的播放状态且正在播放，跳转到播放界面
                     intent = new Intent(this, PlayerActivity.class);
                     intent.putExtra(PlayerActivity.EXTRA_RESUME_PLAYBACK, true);
                 } else {
-                    // 没有保存的播放状态，跳转到主界面
+                    // 没有保存的播放状态或不在播放状态，跳转到主界面
                     intent = new Intent(this, MainActivity.class);
                 }
             } else {
