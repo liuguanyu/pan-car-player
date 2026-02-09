@@ -111,6 +111,8 @@ public class PlayerActivity extends AppCompatActivity {
     private List<Song> playlistSongs;
     private Song currentSong;
     private boolean volumeControlVisible = false;
+    private boolean isMuted = false;
+    private float lastVolume = 0.5f;
 
     // 服务连接
     private ServiceConnection serviceConnection = new ServiceConnection() {
@@ -250,7 +252,11 @@ public class PlayerActivity extends AppCompatActivity {
         previousButton.setOnClickListener(v -> playPrevious());
         nextButton.setOnClickListener(v -> playNext());
         playModeButton.setOnClickListener(v -> togglePlayMode());
-        volumeButton.setOnClickListener(v -> toggleVolumeControl());
+        volumeButton.setOnClickListener(v -> toggleMute());
+        volumeButton.setOnLongClickListener(v -> {
+            toggleVolumeControl();
+            return true;
+        });
         playlistButton.setOnClickListener(v -> togglePlaylist());
         closePlaylistButton.setOnClickListener(v -> hidePlaylist());
         
@@ -292,6 +298,18 @@ public class PlayerActivity extends AppCompatActivity {
                 if (fromUser && serviceBound) {
                     float volume = progress / 100.0f;
                     audioPlayerService.setVolume(volume);
+                    
+                    // 如果用户拖动音量条，取消静音状态
+                    if (isMuted && volume > 0) {
+                        isMuted = false;
+                        lastVolume = volume;
+                        updateVolumeButton();
+                    }
+                    
+                    // 更新保存的音量
+                    if (volume > 0) {
+                        lastVolume = volume;
+                    }
                 }
             }
 
@@ -593,6 +611,46 @@ public class PlayerActivity extends AppCompatActivity {
             // 初始化音量条位置
             float currentVolume = audioPlayerService.getVolume();
             volumeBar.setProgress((int) (currentVolume * 100));
+        }
+    }
+    
+    /**
+     * 切换静音状态
+     */
+    private void toggleMute() {
+        if (!serviceBound) return;
+        
+        if (isMuted) {
+            // 取消静音，恢复之前的音量
+            isMuted = false;
+            audioPlayerService.setVolume(lastVolume);
+            volumeBar.setProgress((int) (lastVolume * 100));
+            Toast.makeText(this, "已取消静音", Toast.LENGTH_SHORT).show();
+        } else {
+            // 静音，保存当前音量
+            float currentVolume = audioPlayerService.getVolume();
+            if (currentVolume > 0) {
+                lastVolume = currentVolume;
+            }
+            isMuted = true;
+            audioPlayerService.setVolume(0);
+            volumeBar.setProgress(0);
+            Toast.makeText(this, "已静音", Toast.LENGTH_SHORT).show();
+        }
+        
+        updateVolumeButton();
+    }
+    
+    /**
+     * 更新音量按钮图标
+     */
+    private void updateVolumeButton() {
+        if (isMuted) {
+            volumeButton.setImageResource(R.drawable.ic_volume_mute);
+            volumeButton.setContentDescription("取消静音");
+        } else {
+            volumeButton.setImageResource(android.R.drawable.ic_lock_silent_mode_off);
+            volumeButton.setContentDescription("静音");
         }
     }
     
