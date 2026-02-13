@@ -183,4 +183,29 @@ public class Song {
         }
         return -1;
     }
+    
+    /**
+     * 去除文件扩展名
+     * @param title 原始标题
+     * @return 去除扩展名后的标题
+     */
+    public static String removeFileExtension(String title) {
+        if (title == null || title.isEmpty()) {
+            return title;
+        }
+        
+        int lastDotIndex = title.lastIndexOf('.');
+        if (lastDotIndex > 0) {
+            return title.substring(0, lastDotIndex);
+        }
+        return title;
+    }
+    
+    /**
+     * 获取去除扩展名的标题
+     * @return 去除扩展名后的标题
+     */
+    public String getTitleWithoutExtension() {
+        return removeFileExtension(this.title);
+    }
 }

@@ -29,35 +29,20 @@
             android:contentDescription="返回"
             app:tint="@android:color/white" />
 
-        <LinearLayout
+        <TextView
+            android:id="@+id/song_title"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:orientation="vertical"
+            android:text="歌曲标题"
+            style="@style/Text.Large"
+            android:textColor="@android:color/white"
+            android:textStyle="bold"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:gravity="center_vertical"
             android:layout_marginStart="@dimen/spacing_normal"
-            android:layout_marginEnd="@dimen/spacing_normal">
-
-            <TextView
-                android:id="@+id/song_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="歌曲标题"
-                style="@style/Text.Large"
-                android:textColor="@android:color/white"
-                android:textStyle="bold"
-                android:singleLine="true"
-                android:ellipsize="end" />
-
-            <TextView
-                android:id="@+id/song_artist"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="艺术家"
-                style="@style/Text.Medium"
-                android:textColor="@color/car_text_secondary"
-                android:singleLine="true" />
-
-        </LinearLayout>
+            android:layout_marginEnd="@dimen/spacing_normal" />
 
         <TextView
             android:id="@+id/song_album"
@@ -69,45 +54,18 @@
             android:ellipsize="end"
             android:maxWidth="200dp" />
 
-        <!-- 系统时间显示 -->
-        <LinearLayout
+        <!-- 音频信息显示 -->
+        <TextView
+            android:id="@+id/audio_info"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
+            android:text="加载中..."
+            android:textSize="18sp"
+            android:textColor="@color/car_text_secondary"
             android:layout_marginStart="@dimen/spacing_normal"
-            android:gravity="center_vertical">
-
-            <TextView
-                android:id="@+id/time_hour"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="00"
-                android:textSize="24sp"
-                android:textColor="@android:color/white"
-                android:fontFamily="monospace"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/time_colon"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=":"
-                android:textSize="24sp"
-                android:textColor="@android:color/white"
-                android:fontFamily="monospace"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/time_minute"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="00"
-                android:textSize="24sp"
-                android:textColor="@android:color/white"
-                android:fontFamily="monospace"
-                android:textStyle="bold" />
-
-        </LinearLayout>
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:maxWidth="320dp" />
 
     </LinearLayout>
 

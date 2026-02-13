@@ -40,6 +40,7 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.widget.LinearLayout;
 import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.view.animation.LinearInterpolator;
 import android.text.TextPaint;
 
@@ -61,13 +62,10 @@ public class PlayerActivity extends AppCompatActivity {
 
     // UI组件
     private TextView songTitle;
-    private TextView songArtist;
     private TextView songAlbum;
     private LinearLayout headerLayout;
     private TextView currentTime;
-    private TextView timeHour;
-    private TextView timeColon;
-    private TextView timeMinute;
+    private TextView audioInfo;
     private TextView totalTime;
     private SeekBar progressBar;
     private SeekBar volumeBar;
@@ -113,6 +111,12 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean volumeControlVisible = false;
     private boolean isMuted = false;
     private float lastVolume = 0.5f;
+    
+    // 流光动画相关
+    private ValueAnimator shimmerAnimator;
+    private float shimmerOffset = 0f;
+    private int shimmerColor1 = Color.rgb(255, 255, 255);
+    private int shimmerColor2 = Color.rgb(200, 200, 255);
 
     // 服务连接
     private ServiceConnection serviceConnection = new ServiceConnection() {
@@ -193,9 +197,6 @@ public class PlayerActivity extends AppCompatActivity {
         // 初始化顶部标题栏渐变背景
         updateHeaderGradient();
         
-        // 启动时间更新和冒号呼吸动画
-        startTimeUpdate();
-        
         bindPlayerService();
 
         // 如果是恢复播放模式，设置到服务中（需要在服务连接后）
@@ -218,13 +219,10 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void initViews() {
         songTitle = findViewById(R.id.song_title);
-        songArtist = findViewById(R.id.song_artist);
         songAlbum = findViewById(R.id.song_album);
         headerLayout = findViewById(R.id.header_layout);
         currentTime = findViewById(R.id.current_time);
-        timeHour = findViewById(R.id.time_hour);
-        timeColon = findViewById(R.id.time_colon);
-        timeMinute = findViewById(R.id.time_minute);
+        audioInfo = findViewById(R.id.audio_info);
         totalTime = findViewById(R.id.total_time);
         progressBar = findViewById(R.id.progress_bar);
         volumeBar = findViewById(R.id.volume_bar);
@@ -475,16 +473,16 @@ public class PlayerActivity extends AppCompatActivity {
         currentSong = audioPlayerService.getCurrentSong();
         if (currentSong == null) return;
 
-        // 更新歌曲信息
-        songTitle.setText(currentSong.getTitle());
-        songArtist.setText(currentSong.getArtist());
+        // 更新歌曲信息（使用去除扩展名的标题）
+        String displayTitle = currentSong.getTitleWithoutExtension();
+        songTitle.setText(displayTitle);
         songAlbum.setText(currentSong.getAlbum());
         // 更新唱片标题
         if (rotatingDiscView != null) {
-            rotatingDiscView.setTitle(currentSong.getTitle());
+            rotatingDiscView.setTitle(displayTitle);
         }
         if (rotatingTextView != null) {
-            rotatingTextView.setText(currentSong.getTitle());
+            rotatingTextView.setText(displayTitle);
         }
         
         // 更新歌名渐变色
@@ -508,6 +506,19 @@ public class PlayerActivity extends AppCompatActivity {
 
         // 更新粒子背景
         updateParticleBackground();
+
+        // 更新音频信息（立即更新一次）
+        updateAudioInfo();
+        
+        // 延迟更新音频信息，因为 ExoPlayer 需要时间解析音频格式
+        handler.postDelayed(() -> {
+            updateAudioInfo();
+        }, 500);
+        
+        // 再次延迟更新，确保获取到完整的音频信息
+        handler.postDelayed(() -> {
+            updateAudioInfo();
+        }, 1500);
 
         // 加载歌词
         loadLyrics();
@@ -756,6 +767,8 @@ public class PlayerActivity extends AppCompatActivity {
                 if (rotatingTextView != null) {
                     rotatingTextView.resumeRotation();
                 }
+                // 播放时启动流光动画
+                startShimmerAnimation();
             } else {
                 playPauseButton.setImageResource(R.drawable.ic_play);
                 if (rotatingDiscView != null) {
@@ -765,6 +778,8 @@ public class PlayerActivity extends AppCompatActivity {
                     rotatingTextView.pauseRotation();
                 }
                 playPauseButton.setContentDescription("播放");
+                // 暂停时停止流光动画
+                stopShimmerAnimation();
             }
         }
     }
@@ -847,68 +862,87 @@ public class PlayerActivity extends AppCompatActivity {
         if (handler != null && updateProgressRunnable != null) {
             handler.removeCallbacks(updateProgressRunnable);
         }
-        
-        // 停止时间更新
-        stopTimeUpdate();
-    }
-    
-    // 时间更新相关
-    private Runnable updateTimeRunnable;
-    private ObjectAnimator colonAnimator;
-    
-    /**
-     * 启动时间更新和冒号呼吸动画
-     */
-    private void startTimeUpdate() {
-        // 更新时间
-        updateTime();
-        
-        // 每秒更新一次时间
-        updateTimeRunnable = this::updateTime;
-        handler.postDelayed(updateTimeRunnable, 1000);
-        
-        // 启动冒号呼吸动画（Alpha从1.0到0.3再到1.0，循环播放）
-        if (timeColon != null) {
-            colonAnimator = ObjectAnimator.ofFloat(timeColon, "alpha", 1.0f, 0.3f, 1.0f);
-            colonAnimator.setDuration(1000); // 1秒完成一个呼吸周期
-            colonAnimator.setRepeatCount(ObjectAnimator.INFINITE);
-            colonAnimator.setRepeatMode(ObjectAnimator.RESTART);
-            colonAnimator.setInterpolator(new LinearInterpolator());
-            colonAnimator.start();
-        }
+        // 停止流光动画
+        stopShimmerAnimation();
     }
     
     /**
-     * 停止时间更新和冒号呼吸动画
+     * 更新音频信息显示
      */
-    private void stopTimeUpdate() {
-        if (updateTimeRunnable != null) {
-            handler.removeCallbacks(updateTimeRunnable);
+    private void updateAudioInfo() {
+        if (!serviceBound || currentSong == null || audioInfo == null) return;
+        
+        // 获取音频格式信息
+        AudioPlayerService.AudioFormatInfo formatInfo = audioPlayerService.getAudioFormatInfo();
+        
+        // 格式化显示
+        StringBuilder info = new StringBuilder();
+        
+        // 音频格式
+        if (formatInfo != null && formatInfo.sampleMimeType != null) {
+            String format = formatInfo.sampleMimeType.toLowerCase();
+            if (format.contains("mpeg") || format.contains("mp3")) {
+                info.append("MP3");
+            } else if (format.contains("flac")) {
+                info.append("FLAC");
+            } else if (format.contains("alac")) {
+                info.append("ALAC");
+            } else if (format.contains("aac")) {
+                info.append("AAC");
+            } else if (format.contains("wav") || format.contains("pcm")) {
+                info.append("WAV");
+            } else if (format.contains("ogg") || format.contains("vorbis") || format.contains("opus")) {
+                info.append("OGG");
+            } else if (format.contains("wma") || format.contains("asf")) {
+                info.append("WMA");
+            } else if (format.contains("m4a")) {
+                info.append("M4A");
+            } else if (format.contains("ape")) {
+                info.append("APE");
+            } else {
+                info.append(format.toUpperCase());
+            }
+            
+            // 采样率
+            if (formatInfo.sampleRate > 0) {
+                info.append(" | ").append(formatInfo.sampleRate / 1000).append("kHz");
+            }
+            
+            // 比特率
+            if (formatInfo.bitrate > 0) {
+                info.append(" | ").append(formatInfo.bitrate / 1000).append("kbps");
+            }
+        } else {
+            info.append("--");
         }
         
-        if (colonAnimator != null && colonAnimator.isRunning()) {
-            colonAnimator.cancel();
+        // 文件大小
+        long size = currentSong.getSize();
+        if (size > 0) {
+            info.append(" | ").append(formatFileSize(size));
         }
+        
+        // 列表曲目数
+        int totalSongs = playlistSongs != null ? playlistSongs.size() : 0;
+        if (totalSongs > 0) {
+            info.append(" | 共").append(totalSongs).append("首");
+        }
+        
+        // 显示到 TextView
+        audioInfo.setText(info.toString());
     }
     
     /**
-     * 更新时间显示
+     * 格式化文件大小
      */
-    private void updateTime() {
-        if (timeHour == null || timeMinute == null) return;
-        
-        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("HH:mm", Locale.getDefault());
-        String timeStr = sdf.format(new java.util.Date());
-        
-        String[] timeParts = timeStr.split(":");
-        if (timeParts.length == 2) {
-            timeHour.setText(timeParts[0]);
-            timeMinute.setText(timeParts[1]);
+    private String formatFileSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + "B";
+        } else if (bytes < 1024 * 1024) {
+            return String.format(Locale.getDefault(), "%.1fKB", bytes / 1024.0);
+        } else {
+            return String.format(Locale.getDefault(), "%.1fMB", bytes / (1024.0 * 1024.0));
         }
-        
-        // 继续下一秒更新
-        updateTimeRunnable = this::updateTime;
-        handler.postDelayed(updateTimeRunnable, 1000);
     }
     
     /**
@@ -918,20 +952,70 @@ public class PlayerActivity extends AppCompatActivity {
         if (songTitle == null) return;
         
         Random random = new Random();
-        int color1 = Color.rgb(100 + random.nextInt(156), 100 + random.nextInt(156), 100 + random.nextInt(156));
-        int color2 = Color.rgb(100 + random.nextInt(156), 100 + random.nextInt(156), 100 + random.nextInt(156));
+        shimmerColor1 = Color.rgb(200 + random.nextInt(56), 200 + random.nextInt(56), 255);
+        shimmerColor2 = Color.rgb(255, 200 + random.nextInt(56), 200 + random.nextInt(56));
         
-        TextPaint paint = songTitle.getPaint();
-        float width = paint.measureText(songTitle.getText().toString());
-        
-        Shader textShader = new LinearGradient(0, 0, width, songTitle.getTextSize(),
-                new int[]{color1, color2},
-                null, Shader.TileMode.CLAMP);
-        songTitle.getPaint().setShader(textShader);
-        songTitle.invalidate();
+        // 启动流光动画
+        startShimmerAnimation();
         
         // 同时更新顶部标题栏背景渐变
         updateHeaderGradient();
+    }
+    
+    /**
+     * 启动流光动画
+     */
+    private void startShimmerAnimation() {
+        if (shimmerAnimator != null && shimmerAnimator.isRunning()) {
+            shimmerAnimator.cancel();
+        }
+        
+        shimmerAnimator = ValueAnimator.ofFloat(0f, 1f);
+        shimmerAnimator.setDuration(4000); // 增加到4秒，让流光效果更缓慢优雅
+        shimmerAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        shimmerAnimator.setRepeatMode(ValueAnimator.RESTART);
+        shimmerAnimator.setInterpolator(new LinearInterpolator());
+        
+        shimmerAnimator.addUpdateListener(animation -> {
+            shimmerOffset = (float) animation.getAnimatedValue();
+            updateShimmerGradient();
+        });
+        
+        shimmerAnimator.start();
+    }
+    
+    /**
+     * 停止流光动画
+     */
+    private void stopShimmerAnimation() {
+        if (shimmerAnimator != null && shimmerAnimator.isRunning()) {
+            shimmerAnimator.cancel();
+        }
+    }
+    
+    /**
+     * 更新流光渐变效果
+     */
+    private void updateShimmerGradient() {
+        if (songTitle == null) return;
+        
+        TextPaint paint = songTitle.getPaint();
+        String text = songTitle.getText().toString();
+        float textWidth = paint.measureText(text);
+        
+        // 保持原有的水平渐变方向，让颜色位置随时间偏移产生流动效果
+        // 使用TileMode.MIRROR使渐变来回移动
+        float offset = shimmerOffset * textWidth;
+        
+        // 创建多色渐变，颜色始终可见，只是位置在移动
+        Shader textShader = new LinearGradient(
+                -offset, 0, textWidth - offset, songTitle.getTextSize(),
+                new int[]{shimmerColor1, shimmerColor2, shimmerColor1},
+                new float[]{0f, 0.5f, 1f},
+                Shader.TileMode.MIRROR);
+        
+        songTitle.getPaint().setShader(textShader);
+        songTitle.invalidate();
     }
 
     /**

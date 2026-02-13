@@ -1003,4 +1003,40 @@ public class AudioPlayerService extends Service {
     private void stopProgressSave() {
         progressSaveHandler.removeCallbacks(progressSaveRunnable);
     }
+    
+    /**
+     * 音频格式信息类
+     */
+    public static class AudioFormatInfo {
+        public String sampleMimeType;  // 编码格式
+        public int sampleRate;         // 采样率
+        public long bitrate;           // 比特率
+        public int channelCount;       // 声道数
+        
+        public AudioFormatInfo(String sampleMimeType, int sampleRate, long bitrate, int channelCount) {
+            this.sampleMimeType = sampleMimeType;
+            this.sampleRate = sampleRate;
+            this.bitrate = bitrate;
+            this.channelCount = channelCount;
+        }
+    }
+    
+    /**
+     * 获取当前播放的音频格式信息
+     * @return AudioFormatInfo 对象，如果无法获取则返回 null
+     */
+    @Nullable
+    public AudioFormatInfo getAudioFormatInfo() {
+        if (exoPlayer == null || exoPlayer.getAudioFormat() == null) {
+            return null;
+        }
+        
+        androidx.media3.common.Format format = exoPlayer.getAudioFormat();
+        return new AudioFormatInfo(
+            format.sampleMimeType,
+            format.sampleRate,
+            format.bitrate,
+            format.channelCount
+        );
+    }
 }
