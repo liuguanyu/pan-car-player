@@ -208,4 +208,32 @@ public class Song {
     public String getTitleWithoutExtension() {
         return removeFileExtension(this.title);
     }
+    
+    /**
+     * 从文件路径中提取文件扩展名
+     * @param filePath 文件路径
+     * @return 文件扩展名（大写），如果没有扩展名返回空字符串
+     */
+    public static String getFileExtension(String filePath) {
+        if (filePath == null || filePath.isEmpty()) {
+            return "";
+        }
+        
+        int lastDotIndex = filePath.lastIndexOf('.');
+        int lastSlashIndex = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+        
+        // 确保点号在最后一个斜杠之后
+        if (lastDotIndex > lastSlashIndex && lastDotIndex < filePath.length() - 1) {
+            return filePath.substring(lastDotIndex + 1).toUpperCase();
+        }
+        return "";
+    }
+    
+    /**
+     * 获取当前歌曲的文件扩展名
+     * @return 文件扩展名（大写）
+     */
+    public String getExtension() {
+        return getFileExtension(this.path);
+    }
 }

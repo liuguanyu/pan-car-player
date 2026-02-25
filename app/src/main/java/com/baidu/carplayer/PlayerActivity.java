@@ -913,7 +913,13 @@ public class PlayerActivity extends AppCompatActivity {
                 info.append(" | ").append(formatInfo.bitrate / 1000).append("kbps");
             }
         } else {
-            info.append("--");
+            // 如果无法获取格式信息，尝试使用文件扩展名
+            String extension = currentSong.getExtension();
+            if (!extension.isEmpty()) {
+                info.append(extension);
+            } else {
+                info.append("--");
+            }
         }
         
         // 文件大小

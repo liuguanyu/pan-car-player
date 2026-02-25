@@ -44,7 +44,7 @@ public class RotatingTextView extends View {
         // 初始化画笔
         textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         textPaint.setColor(Color.BLACK);
-        textPaint.setAlpha(97); // 设置透明度为0.38 (97/255 ≈ 0.38)
+        textPaint.setAlpha(153); // 设置透明度为0.6 (153/255 ≈ 0.6)
         textPaint.setTextAlign(Paint.Align.CENTER);
         textPaint.setFakeBoldText(true);
         textPaint.setLetterSpacing(0.15f); // 增加字符间距，0.15表示字符间距是字体大小的15%
