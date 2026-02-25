@@ -26,6 +26,7 @@ import com.baidu.carplayer.network.RetrofitClient;
 import com.baidu.carplayer.service.AudioPlayerService;
 import androidx.media3.common.PlaybackException;
 
+import java.security.SecureRandom;
 import java.util.List;
 
 /**
@@ -352,7 +353,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         }
 
        // 随机选择一首歌曲开始播放
-        int randomPosition = (int) (Math.random() * currentSongs.size());
+        int randomPosition = new SecureRandom().nextInt(currentSongs.size());
         long songId = currentSongs.get(randomPosition).getFsId();
         openPlayerActivity(songId, true);
     }

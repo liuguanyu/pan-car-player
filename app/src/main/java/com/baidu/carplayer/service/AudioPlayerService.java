@@ -44,7 +44,9 @@ import androidx.annotation.OptIn;
 import androidx.media3.common.util.UnstableApi;
 
 import java.lang.reflect.Type;
+import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import retrofit2.Call;
@@ -82,6 +84,11 @@ public class AudioPlayerService extends Service {
     private List<com.baidu.carplayer.model.Song> playlist;
     private int currentPosition = 0;
     private PlayMode playMode = PlayMode.ORDER;
+    
+    // 随机播放相关
+    private List<Integer> shuffledIndices;      // 洗牌后的索引序列
+    private int shufflePosition = -1;           // 当前在洗牌序列中的位置
+    private SecureRandom secureRandom;          // 密码学安全随机数生成器
     
     // 百度网盘认证服务
     private BaiduAuthService authService;
@@ -482,6 +489,9 @@ public class AudioPlayerService extends Service {
      */
     public void setPlaylist(List<com.baidu.carplayer.model.Song> playlist) {
         this.playlist = playlist;
+        // 重置洗牌序列
+        shuffledIndices = null;
+        shufflePosition = -1;
         savePlaybackState(); // 保存播放状态
     }
     
@@ -647,8 +657,14 @@ public class AudioPlayerService extends Service {
         
         switch (playMode) {
             case RANDOM:
-                // 随机播放模式下，随机选择上一首
-                currentPosition = (int) (Math.random() * playlist.size());
+                if (shuffledIndices == null || shuffledIndices.isEmpty()) {
+                    generateShuffleOrder();
+                }
+                if (shufflePosition > 0) {
+                    shufflePosition--;
+                    currentPosition = shuffledIndices.get(shufflePosition);
+                }
+                // 如果已经是洗牌序列的第一首，则不变
                 break;
             case SINGLE:
                 // 单曲循环模式下，不切换
@@ -676,8 +692,21 @@ public class AudioPlayerService extends Service {
         
         switch (playMode) {
             case RANDOM:
-                // 随机播放模式下，随机选择下一首
-                currentPosition = (int) (Math.random() * playlist.size());
+                if (shuffledIndices == null || shuffledIndices.isEmpty() || shuffledIndices.size() != playlist.size()) {
+                    generateShuffleOrder();
+                }
+                shufflePosition++;
+                if (shufflePosition >= shuffledIndices.size()) {
+                    // 播完一轮，重新洗牌，但避免首尾衔接重复
+                    int lastPlayed = shuffledIndices.get(shuffledIndices.size() - 1);
+                    generateShuffleOrder();
+                    if (shuffledIndices.size() > 1 && shuffledIndices.get(0) == lastPlayed) {
+                        int swapPos = 1 + secureRandom.nextInt(shuffledIndices.size() - 1);
+                        Collections.swap(shuffledIndices, 0, swapPos);
+                    }
+                    shufflePosition = 0;
+                }
+                currentPosition = shuffledIndices.get(shufflePosition);
                 break;
             case SINGLE:
                 // 单曲循环模式下，不切换
@@ -707,6 +736,9 @@ public class AudioPlayerService extends Service {
      */
     public void setPlayMode(PlayMode playMode) {
         this.playMode = playMode;
+        if (playMode == PlayMode.RANDOM) {
+            generateShuffleOrder();
+        }
         savePlaybackState(); // 保存播放状态
     }
     
@@ -715,6 +747,44 @@ public class AudioPlayerService extends Service {
      */
     public void setShuffleMode(boolean shuffle) {
         this.playMode = shuffle ? PlayMode.RANDOM : PlayMode.ORDER;
+        if (shuffle) {
+            generateShuffleOrder();
+        }
+    }
+    
+    /**
+     * 使用 Fisher-Yates 洗牌算法 + SecureRandom 生成随机播放序列
+     * 确保每首歌在一个周期内恰好播放一次
+     */
+    private void generateShuffleOrder() {
+        if (playlist == null || playlist.isEmpty()) return;
+        
+        int size = playlist.size();
+        shuffledIndices = new ArrayList<>(size);
+        for (int i = 0; i < size; i++) {
+            shuffledIndices.add(i);
+        }
+        
+        if (secureRandom == null) {
+            secureRandom = new SecureRandom();
+        }
+        
+        // Fisher-Yates 洗牌
+        for (int i = size - 1; i > 0; i--) {
+            int j = secureRandom.nextInt(i + 1);
+            Collections.swap(shuffledIndices, i, j);
+        }
+        
+        // 将当前正在播放的歌曲放到洗牌序列的第一个位置
+        if (currentPosition >= 0 && currentPosition < size) {
+            int currentIndex = shuffledIndices.indexOf(currentPosition);
+            if (currentIndex > 0) {
+                Collections.swap(shuffledIndices, 0, currentIndex);
+            }
+        }
+        shufflePosition = 0;
+        
+        Log.d(TAG, "Generated shuffle order, size=" + size + ", shufflePosition=0");
     }
     
     /**
@@ -949,6 +1019,11 @@ public class AudioPlayerService extends Service {
                 playMode = PlayMode.valueOf(playModeName);
             } catch (IllegalArgumentException e) {
                 playMode = PlayMode.ORDER;
+            }
+            
+            // 如果恢复的是随机模式，重新生成洗牌序列
+            if (playMode == PlayMode.RANDOM) {
+                generateShuffleOrder();
             }
             
             Log.d(TAG, "播放状态已恢复: playlist size=" + (playlist != null ? playlist.size() : 0)
