@@ -164,17 +164,7 @@ public class RotatingTextView extends View {
      * 设置文字
      */
     public void setText(String text) {
-        if (text == null) {
-            this.text = "";
-        } else {
-            // 去除文件后缀名 (如 .mp3, .flac 等)
-            int lastDotIndex = text.lastIndexOf('.');
-            if (lastDotIndex > 0) {
-                this.text = text.substring(0, lastDotIndex);
-            } else {
-                this.text = text;
-            }
-        }
+        this.text = text != null ? text : "";
         invalidate();
     }
 

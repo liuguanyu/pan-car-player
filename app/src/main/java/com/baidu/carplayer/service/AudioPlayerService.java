@@ -69,8 +69,9 @@ public class AudioPlayerService extends Service {
     private static final String KEY_IS_PLAYING = "is_playing";
     
     private ExoPlayer exoPlayer;
-    private AudioFocusRequest audioFocusRequest;
-    private AudioManager audioManager;
+    // 移除手动音频焦点管理，交由 ExoPlayer 内部处理
+    // private AudioFocusRequest audioFocusRequest;
+    // private AudioManager audioManager;
     private MediaSessionCompat mediaSession;
     private final IBinder binder = new LocalBinder();
     
@@ -133,7 +134,7 @@ public class AudioPlayerService extends Service {
         gson = new Gson();
         initializePlayer();
         createNotificationChannel();
-        setupAudioFocus();
+        // setupAudioFocus(); // 移除手动设置，ExoPlayer 自动处理
         setupMediaSession();
         restorePlaybackState(); // 恢复播放状态
     }
@@ -149,14 +150,22 @@ public class AudioPlayerService extends Service {
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
         
+        // 创建 AudioAttributes
+        androidx.media3.common.AudioAttributes audioAttributes =
+                new androidx.media3.common.AudioAttributes.Builder()
+                        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .build();
+
         // 创建ExoPlayer实例
         exoPlayer = new ExoPlayer.Builder(this)
             .setRenderersFactory(renderersFactory)
             .setSeekBackIncrementMs(5000)
             .setSeekForwardIncrementMs(5000)
+            .setAudioAttributes(audioAttributes, true) // 启用自动音频焦点管理
             .build();
         
-        Log.d(TAG, "ExoPlayer初始化完成");
+        Log.d(TAG, "ExoPlayer初始化完成，已配置AudioAttributes和自动焦点管理");
         Log.d(TAG, "已启用解码器回退机制");
         Log.d(TAG, "扩展渲染器模式: ON (启用扩展解码器)");
         
@@ -271,19 +280,23 @@ public class AudioPlayerService extends Service {
     /**
      * 设置音频焦点
      */
+    /**
+     * 设置音频焦点
+     * 已弃用：由 ExoPlayer 自动管理音频焦点
+     */
     private void setupAudioFocus() {
-        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        
-        AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build();
-        
-        audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(audioAttributes)
-                .setAcceptsDelayedFocusGain(true)
-                .setOnAudioFocusChangeListener(audioFocusChangeListener)
-                .build();
+        // audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        //
+        // AudioAttributes audioAttributes = new AudioAttributes.Builder()
+        //         .setUsage(AudioAttributes.USAGE_MEDIA)
+        //         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+        //         .build();
+        //
+        // audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+        //         .setAudioAttributes(audioAttributes)
+        //         .setAcceptsDelayedFocusGain(true)
+        //         .setOnAudioFocusChangeListener(audioFocusChangeListener)
+        //         .build();
     }
     
     /**
@@ -338,45 +351,32 @@ public class AudioPlayerService extends Service {
     /**
      * 音频焦点变化监听器
      */
+    // 已弃用：由 ExoPlayer 自动管理音频焦点
+    /*
     private final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener = new AudioManager.OnAudioFocusChangeListener() {
         @Override
         public void onAudioFocusChange(int focusChange) {
-            switch (focusChange) {
-                case AudioManager.AUDIOFOCUS_GAIN:
-                    // 恢复播放
-                    if (exoPlayer.getPlayWhenReady()) {
-                        exoPlayer.setVolume(1.0f);
-                    }
-                    break;
-                case AudioManager.AUDIOFOCUS_LOSS:
-                    // 永久失去焦点，暂停播放
-                    pause();
-                    break;
-                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                    // 暂时失去焦点，暂停播放
-                    pause();
-                    break;
-                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                    // 暂时失去焦点，降低音量
-                    exoPlayer.setVolume(0.3f);
-                    break;
-            }
+            // ...
         }
     };
+    */
     
     /**
      * 请求音频焦点
+     * 已弃用：由 ExoPlayer 自动管理音频焦点
      */
     private boolean requestAudioFocus() {
-        int result = audioManager.requestAudioFocus(audioFocusRequest);
-        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        // int result = audioManager.requestAudioFocus(audioFocusRequest);
+        // return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        return true; // 始终返回 true，因为 ExoPlayer 会自动处理
     }
     
     /**
      * 放弃音频焦点
+     * 已弃用：由 ExoPlayer 自动管理音频焦点
      */
     private void abandonAudioFocus() {
-        audioManager.abandonAudioFocusRequest(audioFocusRequest);
+        // audioManager.abandonAudioFocusRequest(audioFocusRequest);
     }
     
     /**
@@ -422,8 +422,8 @@ public class AudioPlayerService extends Service {
             }
         }
         
-        if (requestAudioFocus()) {
-            Log.d(TAG, "✓ 音频焦点获取成功");
+        // if (requestAudioFocus()) {
+            // Log.d(TAG, "✓ 音频焦点获取成功");
             
             MediaItem mediaItem = MediaItem.fromUri(url);
             exoPlayer.setMediaItem(mediaItem);
@@ -462,19 +462,19 @@ public class AudioPlayerService extends Service {
             startForeground(NOTIFICATION_ID, createNotification());
             Log.d(TAG, "✓ 音频播放已启动");
             Log.d(TAG, "==================================");
-        } else {
-            Log.e(TAG, "✗ 无法获取音频焦点");
-        }
+        // } else {
+        //     Log.e(TAG, "✗ 无法获取音频焦点");
+        // }
     }
     
     /**
      * 播放（继续播放）
      */
     public void play() {
-        if (requestAudioFocus()) {
+        // if (requestAudioFocus()) {
             exoPlayer.play();
             savePlaybackState(); // 开始播放时保存状态
-        }
+        // }
     }
     
     /**
@@ -736,9 +736,9 @@ public class AudioPlayerService extends Service {
      * 继续播放
      */
     public void resume() {
-        if (requestAudioFocus()) {
+        // if (requestAudioFocus()) {
             exoPlayer.play();
-        }
+        // }
     }
     
     /**
@@ -746,7 +746,7 @@ public class AudioPlayerService extends Service {
      */
     public void stop() {
         exoPlayer.stop();
-        abandonAudioFocus();
+        // abandonAudioFocus();
         stopForeground(true);
     }
     
@@ -894,7 +894,7 @@ public class AudioPlayerService extends Service {
             exoPlayer.release();
             exoPlayer = null;
         }
-        abandonAudioFocus();
+        // abandonAudioFocus();
     }
     
     /**

@@ -357,17 +357,7 @@ public class RotatingDiscView extends ImageView {
      * 设置唱片标题
      */
     public void setTitle(String title) {
-        if (title == null) {
-            this.title = "";
-        } else {
-            // 去除文件后缀名 (如 .mp3, .flac 等)
-            int lastDotIndex = title.lastIndexOf('.');
-            if (lastDotIndex > 0) {
-                this.title = title.substring(0, lastDotIndex);
-            } else {
-                this.title = title;
-            }
-        }
+        this.title = title != null ? title : "";
         invalidate();
     }
 }
