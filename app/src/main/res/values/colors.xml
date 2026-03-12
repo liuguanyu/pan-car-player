@@ -40,6 +40,7 @@
     <color name="status_playing">#FF4CAF50</color>
     <color name="status_paused">#FFFF9800</color>
     <color name="status_error">#FFF44336</color>
+    <color name="car_error">#FFF44336</color>
     
     <!-- 列表项颜色 -->
     <color name="list_item_background">#FF252525</color>

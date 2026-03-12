@@ -23,8 +23,11 @@ public interface SongDao {
     @Query("SELECT * FROM songs WHERE playlistId = :playlistId ORDER BY addedTime ASC")
     List<Song> getSongsByPlaylistSync(String playlistId);
 
+    @Query("SELECT * FROM songs WHERE fsId = :fsId AND playlistId = :playlistId")
+    Song getSong(long fsId, String playlistId);
+
     @Query("SELECT * FROM songs WHERE fsId = :fsId")
-    Song getSongById(long fsId);
+    List<Song> getSongsById(long fsId);
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertSong(Song song);
@@ -37,6 +40,9 @@ public interface SongDao {
 
     @Delete
     void deleteSong(Song song);
+    
+    @Query("DELETE FROM songs WHERE fsId = :fsId AND playlistId = :playlistId")
+    void deleteSong(long fsId, String playlistId);
     
     @Query("DELETE FROM songs WHERE fsId = :fsId")
     void deleteSongById(long fsId);

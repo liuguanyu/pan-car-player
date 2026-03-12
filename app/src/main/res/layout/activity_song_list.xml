@@ -108,6 +108,61 @@
         android:layout_weight="1"
         android:scrollbars="vertical" />
 
+    <!-- 底部多选控制栏 -->
+    <LinearLayout
+        android:id="@+id/selection_control_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="@dimen/spacing_normal"
+        android:background="@color/car_primary"
+        android:visibility="gone"
+        android:gravity="center_vertical">
+
+        <Button
+            android:id="@+id/btn_selection_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="取消"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:textColor="@android:color/white" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/tv_selection_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="已选择 0 项"
+            android:textColor="@android:color/white"
+            android:textSize="@dimen/text_size_medium"
+            android:textStyle="bold" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <Button
+            android:id="@+id/btn_selection_select_all"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="全选"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:textColor="@android:color/white" />
+
+        <Button
+            android:id="@+id/btn_selection_delete"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="删除"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:textColor="@color/car_error" />
+    </LinearLayout>
+
     <!-- 空状态 -->
     <LinearLayout
         android:id="@+id/empty_state"
@@ -149,6 +204,61 @@
             android:layout_marginTop="@dimen/spacing_large"
             style="@style/Button.Primary" />
 
+    </LinearLayout>
+
+    <!-- 底部多选控制栏 -->
+    <LinearLayout
+        android:id="@+id/selection_control_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="@dimen/spacing_normal"
+        android:background="@color/car_primary"
+        android:visibility="gone"
+        android:gravity="center_vertical">
+
+        <Button
+            android:id="@+id/btn_selection_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="取消"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:textColor="@android:color/white" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/tv_selection_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="已选择 0 项"
+            android:textColor="@android:color/white"
+            android:textSize="@dimen/text_size_medium"
+            android:textStyle="bold" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <Button
+            android:id="@+id/btn_selection_select_all"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="全选"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:textColor="@android:color/white" />
+
+        <Button
+            android:id="@+id/btn_selection_delete"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="删除"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:textColor="@color/car_error" />
     </LinearLayout>
 
 </LinearLayout>

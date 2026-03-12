@@ -6,6 +6,7 @@ import android.view.ViewGroup;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.CheckBox;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
@@ -16,22 +17,87 @@ import com.baidu.carplayer.model.Song;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder> {
 
     private List<Song> songs = new ArrayList<>();
     private OnSongClickListener listener;
     private long currentPlayingSongId = -1;
+    
+    // 多选模式相关
+    private boolean isSelectionMode = false;
+    private Set<Long> selectedSongIds = new HashSet<>();
+    private OnSelectionChangeListener selectionChangeListener;
 
     public interface OnSongClickListener {
         void onSongClick(Song song, int position);
         void onPlayFromHereClick(Song song, int position);
+        void onSongLongClick(Song song, int position);
+    }
+    
+    public interface OnSelectionChangeListener {
+        void onSelectionChanged(int count);
     }
 
     public void setOnSongClickListener(OnSongClickListener listener) {
         this.listener = listener;
+    }
+    
+    public void setOnSelectionChangeListener(OnSelectionChangeListener listener) {
+        this.selectionChangeListener = listener;
+    }
+    
+    public void setSelectionMode(boolean selectionMode) {
+        if (this.isSelectionMode != selectionMode) {
+            this.isSelectionMode = selectionMode;
+            if (!selectionMode) {
+                selectedSongIds.clear();
+                notifySelectionChanged();
+            }
+            notifyDataSetChanged();
+        }
+    }
+    
+    public boolean isSelectionMode() {
+        return isSelectionMode;
+    }
+    
+    public void toggleSelection(long songId) {
+        if (selectedSongIds.contains(songId)) {
+            selectedSongIds.remove(songId);
+        } else {
+            selectedSongIds.add(songId);
+        }
+        notifySelectionChanged();
+        notifyDataSetChanged();
+    }
+    
+    public void selectAll() {
+        for (Song song : songs) {
+            selectedSongIds.add(song.getFsId());
+        }
+        notifySelectionChanged();
+        notifyDataSetChanged();
+    }
+    
+    public List<Song> getSelectedSongs() {
+        List<Song> result = new ArrayList<>();
+        for (Song song : songs) {
+            if (selectedSongIds.contains(song.getFsId())) {
+                result.add(song);
+            }
+        }
+        return result;
+    }
+    
+    private void notifySelectionChanged() {
+        if (selectionChangeListener != null) {
+            selectionChangeListener.onSelectionChanged(selectedSongIds.size());
+        }
     }
 
     public void setSongs(List<Song> songs) {
@@ -57,9 +123,11 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
             this.currentPlayingSongId = songId;
             
             // 刷新受影响的项
-            for (int i = 0; i < songs.size(); i++) {
-                if (songs.get(i).getId() == oldId || songs.get(i).getId() == songId) {
-                    notifyItemChanged(i);
+            if (songs != null) {
+                for (int i = 0; i < songs.size(); i++) {
+                    if (songs.get(i).getId() == oldId || songs.get(i).getId() == songId) {
+                        notifyItemChanged(i);
+                    }
                 }
             }
         }
@@ -105,18 +173,33 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
         private TextView songTitle;
         private TextView songPath;
         private ImageButton songMore;
+        private CheckBox checkboxSelect;
 
         public SongViewHolder(@NonNull View itemView) {
             super(itemView);
             songTitle = itemView.findViewById(R.id.song_title);
             songPath = itemView.findViewById(R.id.song_path);
             songMore = itemView.findViewById(R.id.song_more);
+            checkboxSelect = itemView.findViewById(R.id.checkbox_select);
 
             itemView.setOnClickListener(v -> {
                 int position = getAdapterPosition();
-                if (listener != null && position != RecyclerView.NO_POSITION) {
-                    listener.onSongClick(songs.get(position), position);
+                if (position == RecyclerView.NO_POSITION) return;
+                Song song = songs.get(position);
+                if (isSelectionMode) {
+                    toggleSelection(song.getFsId());
+                } else if (listener != null) {
+                    listener.onSongClick(song, position);
                 }
+            });
+            
+            itemView.setOnLongClickListener(v -> {
+                int position = getAdapterPosition();
+                if (position != RecyclerView.NO_POSITION && listener != null) {
+                    listener.onSongLongClick(songs.get(position), position);
+                    return true;
+                }
+                return false;
             });
 
             songMore.setOnClickListener(v -> {
@@ -130,6 +213,15 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
         public void bind(Song song) {
             songTitle.setText(song.getTitle());
             songPath.setText(song.getPath());
+            
+            if (isSelectionMode) {
+                checkboxSelect.setVisibility(View.VISIBLE);
+                songMore.setVisibility(View.GONE);
+                checkboxSelect.setChecked(selectedSongIds.contains(song.getFsId()));
+            } else {
+                checkboxSelect.setVisibility(View.GONE);
+                songMore.setVisibility(View.VISIBLE);
+            }
             
             // 显示播放状态
             if (song.getId() == currentPlayingSongId) {

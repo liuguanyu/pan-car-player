@@ -61,8 +61,17 @@ public class CurrentPlaylistAdapter extends RecyclerView.Adapter<CurrentPlaylist
 
     public void setCurrentPlayingSongId(long songId) {
         if (this.currentPlayingSongId != songId) {
+            long oldId = this.currentPlayingSongId;
             this.currentPlayingSongId = songId;
-            notifyDataSetChanged();
+            
+            // 刷新受影响的项
+            if (filteredSongs != null) {
+                for (int i = 0; i < filteredSongs.size(); i++) {
+                    if (filteredSongs.get(i).getId() == oldId || filteredSongs.get(i).getId() == songId) {
+                        notifyItemChanged(i);
+                    }
+                }
+            }
         }
     }
 

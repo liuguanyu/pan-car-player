@@ -9,7 +9,7 @@ import com.baidu.carplayer.model.Song;
 /**
  * 应用数据库类
  */
-@Database(entities = {Playlist.class, Song.class}, version = 1, exportSchema = false)
+@Database(entities = {Playlist.class, Song.class}, version = 2, exportSchema = false)
 public abstract class AppDatabase extends RoomDatabase {
     public abstract PlaylistDao playlistDao();
     public abstract SongDao songDao();

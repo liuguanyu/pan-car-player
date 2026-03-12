@@ -22,7 +22,9 @@ public class DatabaseManager {
                 context.getApplicationContext(),
                 AppDatabase.class,
                 DATABASE_NAME
-        ).build();
+        )
+        .fallbackToDestructiveMigration()
+        .build();
     }
 
     public static DatabaseManager getInstance(Context context) {

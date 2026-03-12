@@ -127,10 +127,29 @@ public class PlaylistManager {
     public void addSongToPlaylist(String playlistId, Song song, OnResultListener listener) {
         new Thread(() -> {
             try {
-                song.setPlaylistId(playlistId);
-                song.setAddedTime(System.currentTimeMillis());
+                // 检查歌曲是否已经在该播放列表中
+                Song existingSong = databaseManager.getDatabase().songDao().getSong(song.getFsId(), playlistId);
+                if (existingSong != null) {
+                    if (listener != null) {
+                        listener.onError("歌曲已存在于该播放列表中");
+                    }
+                    return;
+                }
+
+                // 需要创建一个新的Song对象，避免修改原对象影响其他列表
+                Song newSong = new Song();
+                newSong.setFsId(song.getFsId());
+                newSong.setPlaylistId(playlistId);
+                newSong.setTitle(song.getTitle());
+                newSong.setPath(song.getPath());
+                newSong.setSize(song.getSize());
+                newSong.setAddedTime(System.currentTimeMillis());
+                newSong.setArtist(song.getArtist());
+                newSong.setAlbum(song.getAlbum());
+                newSong.setDuration(song.getDuration());
+                newSong.setCoverUrl(song.getCoverUrl());
                 
-                databaseManager.getDatabase().songDao().insertSong(song);
+                databaseManager.getDatabase().songDao().insertSong(newSong);
                 
                 // 更新播放列表的歌曲数量
                 Playlist playlist = databaseManager.getDatabase().playlistDao().getPlaylistById(playlistId);
@@ -140,7 +159,7 @@ public class PlaylistManager {
                 }
                 
                 if (listener != null) {
-                    listener.onSuccess(song);
+                    listener.onSuccess(newSong);
                 }
             } catch (Exception e) {
                 if (listener != null) {
@@ -157,12 +176,44 @@ public class PlaylistManager {
         new Thread(() -> {
             try {
                 String playlistId = song.getPlaylistId();
-                databaseManager.getDatabase().songDao().deleteSong(song);
+                databaseManager.getDatabase().songDao().deleteSong(song.getFsId(), playlistId);
                 
                 // 更新播放列表的歌曲数量
                 Playlist playlist = databaseManager.getDatabase().playlistDao().getPlaylistById(playlistId);
                 if (playlist != null) {
                     playlist.setSongCount(Math.max(0, playlist.getSongCount() - 1));
+                    databaseManager.getDatabase().playlistDao().insertPlaylist(playlist);
+                }
+                
+                if (listener != null) {
+                    listener.onSuccess(null);
+                }
+            } catch (Exception e) {
+                if (listener != null) {
+                    listener.onError(e.getMessage());
+                }
+            }
+        }).start();
+    }
+    
+    /**
+     * 从播放列表批量移除歌曲
+     */
+    public void removeSongsFromPlaylist(List<Song> songs, String playlistId, OnResultListener listener) {
+        if (songs == null || songs.isEmpty()) {
+            if (listener != null) listener.onSuccess(null);
+            return;
+        }
+        new Thread(() -> {
+            try {
+                for (Song song : songs) {
+                    databaseManager.getDatabase().songDao().deleteSong(song.getFsId(), playlistId);
+                }
+                
+                // 更新播放列表的歌曲数量
+                Playlist playlist = databaseManager.getDatabase().playlistDao().getPlaylistById(playlistId);
+                if (playlist != null) {
+                    playlist.setSongCount(Math.max(0, playlist.getSongCount() - songs.size()));
                     databaseManager.getDatabase().playlistDao().insertPlaylist(playlist);
                 }
                 

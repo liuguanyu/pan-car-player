@@ -49,6 +49,13 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
     private ImageButton nowPlayingButton;
     private ImageButton refreshButton;
     private ImageButton sortButton;
+    
+    // 多选相关
+    private View selectionControlBar;
+    private Button btnSelectionCancel;
+    private TextView tvSelectionCount;
+    private Button btnSelectionSelectAll;
+    private Button btnSelectionDelete;
 
     private String playlistId;
     private String playlistName;
@@ -129,6 +136,28 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
     }
     
     @Override
+    public void onSongClick(Song song, int position) {
+        if (songAdapter.isSelectionMode()) {
+            return; // 多选模式下的点击已经在Adapter中处理
+        }
+        openPlayerActivity(position);
+    }
+
+    @Override
+    public void onPlayFromHereClick(Song song, int position) {
+        openPlayerActivity(position);
+    }
+    
+    @Override
+    public void onSongLongClick(Song song, int position) {
+        if (!songAdapter.isSelectionMode()) {
+            songAdapter.setSelectionMode(true);
+            songAdapter.toggleSelection(song.getFsId());
+            updateSelectionUI();
+        }
+    }
+    
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         if (serviceBound) {
@@ -148,6 +177,12 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         nowPlayingButton = findViewById(R.id.now_playing_button);
         refreshButton = findViewById(R.id.refresh_button);
         sortButton = findViewById(R.id.sort_button);
+        
+        selectionControlBar = findViewById(R.id.selection_control_bar);
+        btnSelectionCancel = findViewById(R.id.btn_selection_cancel);
+        tvSelectionCount = findViewById(R.id.tv_selection_count);
+        btnSelectionSelectAll = findViewById(R.id.btn_selection_select_all);
+        btnSelectionDelete = findViewById(R.id.btn_selection_delete);
 
         // 设置标题
         if (playlistName != null) {
@@ -163,6 +198,10 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
 
         songAdapter = new SongAdapter();
         songAdapter.setOnSongClickListener(this);
+        songAdapter.setOnSelectionChangeListener(count -> {
+            tvSelectionCount.setText("已选择 " + count + " 项");
+            btnSelectionDelete.setEnabled(count > 0);
+        });
         songRecyclerView.setAdapter(songAdapter);
 
         // 设置按钮点击事件
@@ -175,6 +214,65 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         sortButton.setOnClickListener(v -> toggleSortOrder());
         
         findViewById(R.id.add_songs_empty_button).setOnClickListener(v -> openFileBrowser());
+        
+        // 多选模式按钮事件
+        btnSelectionCancel.setOnClickListener(v -> {
+            songAdapter.setSelectionMode(false);
+            updateSelectionUI();
+        });
+        
+        btnSelectionSelectAll.setOnClickListener(v -> songAdapter.selectAll());
+        
+        btnSelectionDelete.setOnClickListener(v -> deleteSelectedSongs());
+    }
+    
+    private void updateSelectionUI() {
+        boolean isSelectionMode = songAdapter.isSelectionMode();
+        selectionControlBar.setVisibility(isSelectionMode ? View.VISIBLE : View.GONE);
+        
+        // 隐藏/显示正常模式下的顶部按钮
+        int visibility = isSelectionMode ? View.GONE : View.VISIBLE;
+        sortButton.setVisibility(visibility);
+        playAllButton.setVisibility(visibility);
+        shuffleButton.setVisibility(visibility);
+        refreshButton.setVisibility(visibility);
+        addSongsButton.setVisibility(visibility);
+        if (isSelectionMode) {
+            nowPlayingButton.setVisibility(View.GONE);
+        } else {
+            checkNowPlayingStatus();
+        }
+    }
+    
+    private void deleteSelectedSongs() {
+        List<Song> selectedSongs = songAdapter.getSelectedSongs();
+        if (selectedSongs.isEmpty()) return;
+        
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("确认删除")
+            .setMessage("确定要从该歌单中移除选中的 " + selectedSongs.size() + " 首歌曲吗？")
+            .setPositiveButton("删除", (dialog, which) -> {
+                playlistManager.removeSongsFromPlaylist(selectedSongs, playlistId, new PlaylistManager.OnResultListener() {
+                    @Override
+                    public void onSuccess(Object result) {
+                        runOnUiThread(() -> {
+                            Toast.makeText(SongListActivity.this, "删除成功", Toast.LENGTH_SHORT).show();
+                            songAdapter.setSelectionMode(false);
+                            updateSelectionUI();
+                            loadSongs();
+                        });
+                    }
+                    
+                    @Override
+                    public void onError(String error) {
+                        runOnUiThread(() -> {
+                            Toast.makeText(SongListActivity.this, "删除失败: " + error, Toast.LENGTH_SHORT).show();
+                        });
+                    }
+                });
+            })
+            .setNegativeButton("取消", null)
+            .show();
     }
 
     /**
@@ -274,6 +372,12 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
 
     @Override
     public void onBackPressed() {
+        if (songAdapter != null && songAdapter.isSelectionMode()) {
+            songAdapter.setSelectionMode(false);
+            updateSelectionUI();
+            return;
+        }
+
         // 检查是否是任务栈的根Activity
         if (isTaskRoot()) {
             // 如果是根Activity，导航到MainActivity而不是退出应用
@@ -380,17 +484,6 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         startActivity(intent);
     }
 
-    @Override
-    public void onSongClick(Song song, int position) {
-        // 打开播放页面，传递歌曲ID和排序状态
-        openPlayerActivity(song.getFsId());
-    }
-
-    @Override
-    public void onPlayFromHereClick(Song song, int position) {
-        // 从这首歌曲开始播放，传递歌曲ID和排序状态
-        openPlayerActivity(song.getFsId());
-    }
 
     @Override
     protected void onResume() {

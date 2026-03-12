@@ -1,5 +1,6 @@
 package com.baidu.carplayer.model;
 
+import androidx.annotation.NonNull;
 import androidx.room.Entity;
 import androidx.room.Ignore;
 import androidx.room.PrimaryKey;
@@ -11,11 +12,11 @@ import java.util.List;
 /**
  * 歌曲实体类
  */
-@Entity(tableName = "songs")
+@Entity(tableName = "songs", primaryKeys = {"fsId", "playlistId"})
 public class Song {
-    @PrimaryKey
     public long fsId;
-    public String playlistId;
+    @NonNull
+    public String playlistId = "";
     public String title;
     public String path;
     public long size;
