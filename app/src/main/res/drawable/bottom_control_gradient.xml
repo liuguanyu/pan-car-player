@@ -10,7 +10,7 @@
                 android:angle="270" />
         </shape>
     </item>
-    
+
     <!-- 顶部微光效果 -->
     <item
         android:top="0dp"

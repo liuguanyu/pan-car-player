@@ -1,100 +1,93 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/car_background">
+    android:background="@color/background">
 
-    <!-- 顶部标题栏 -->
+    <!-- 顶部栏 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="@dimen/spacing_normal"
         android:gravity="center_vertical"
-        android:background="@color/car_primary">
+        android:padding="16dp"
+        android:background="@color/surface">
+
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_music_note"
+            android:layout_marginEnd="12dp" />
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="我的播放列表"
-            android:textSize="@dimen/text_size_xlarge"
-            android:textColor="@android:color/white"
+            android:text="@string/main_title"
+            android:textColor="@color/textPrimary"
+            android:textSize="22sp"
             android:textStyle="bold" />
 
-        <ImageButton
-            android:id="@+id/add_playlist_button"
-            android:layout_width="@dimen/icon_button_size"
-            android:layout_height="@dimen/icon_button_size"
-            android:src="@android:drawable/ic_input_add"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/playlist_add"
-            android:layout_marginEnd="@dimen/spacing_small"
-            app:tint="@android:color/white" />
+        <TextView
+            android:id="@+id/btn_refresh"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:gravity="center"
+            android:textSize="24sp"
+            android:textColor="@color/textSecondary"
+            android:text="↻"
+            android:background="?attr/selectableItemBackgroundBorderless" />
 
-        <ImageButton
-            android:id="@+id/now_playing_button"
-            android:layout_width="@dimen/icon_button_size"
-            android:layout_height="@dimen/icon_button_size"
-            android:src="@android:drawable/ic_media_play"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="正在播放"
-            app:tint="@color/car_accent"
-            android:visibility="gone" />
+        <TextView
+            android:id="@+id/btn_create_playlist"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:gravity="center"
+            android:textSize="28sp"
+            android:textColor="@color/accent"
+            android:text="＋"
+            android:background="?attr/selectableItemBackgroundBorderless" />
 
     </LinearLayout>
 
-    <!-- 播放列表 -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/playlist_list_view"
+    <!-- 分割线 -->
+    <View
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:padding="@dimen/spacing_small"
-        android:clipToPadding="false"
-        android:scrollbars="vertical" />
+        android:layout_height="1dp"
+        android:background="@color/cardBackground" />
 
-    <!-- 空状态 -->
-    <LinearLayout
-        android:id="@+id/empty_state"
+    <!-- 列表区域（下拉刷新） -->
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipe_refresh"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:visibility="gone">
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
-        <ImageView
-            android:layout_width="120dp"
-            android:layout_height="120dp"
-            android:src="@android:drawable/ic_menu_my_calendar"
-            android:alpha="0.3"
-            android:contentDescription="Empty" />
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="还没有播放列表"
-            android:textSize="@dimen/text_size_xlarge"
-            android:layout_marginTop="@dimen/spacing_medium"
-            android:textColor="@color/car_text_secondary" />
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_playlists"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="点击下方按钮创建第一个播放列表"
-            style="@style/Text.Secondary"
-            android:layout_marginTop="@dimen/spacing_small"
-            android:textColor="@color/car_text_secondary" />
+            <TextView
+                android:id="@+id/tv_empty"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:text="@string/main_no_playlist"
+                android:textColor="@color/textHint"
+                android:textSize="18sp"
+                android:gravity="center"
+                android:visibility="gone" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/add_playlist_empty_button"
-            android:layout_width="wrap_content"
-            android:layout_height="@dimen/button_height"
-            android:text="创建播放列表"
-            android:layout_marginTop="@dimen/spacing_large"
-            style="@style/Button.Primary" />
+        </FrameLayout>
 
-    </LinearLayout>
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
 </LinearLayout>

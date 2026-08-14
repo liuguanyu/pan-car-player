@@ -1,81 +1,71 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 文件/文件夹列表项 — 车机大屏优化 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:paddingStart="@dimen/spacing_normal"
-    android:paddingEnd="@dimen/spacing_small"
-    android:paddingTop="@dimen/spacing_small"
-    android:paddingBottom="@dimen/spacing_small"
     android:gravity="center_vertical"
-    android:minHeight="65dp">
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="4dp">
 
-    <!-- 图标区域 -->
-    <FrameLayout
-        android:layout_width="44dp"
-        android:layout_height="44dp"
-        android:layout_marginEnd="@dimen/spacing_normal">
-
-        <ImageView
-            android:id="@+id/file_icon"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:src="@android:drawable/ic_menu_agenda"
-            android:contentDescription="File Icon"
-            android:scaleType="fitCenter"
-            android:padding="4dp" />
-
-        <!-- 选中状态图标 -->
-        <ImageView
-            android:id="@+id/selected_icon"
-            android:layout_width="22dp"
-            android:layout_height="22dp"
-            android:layout_gravity="bottom|end"
-            android:layout_marginEnd="0dp"
-            android:layout_marginBottom="0dp"
-            android:src="@drawable/ic_check_green"
-            android:contentDescription="Selected"
-            android:visibility="gone"
-            android:scaleType="fitXY" />
-
-        <!-- 复选框（保留ID但不显示，逻辑中已移除） -->
-        <CheckBox
-            android:id="@+id/file_checkbox"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:visibility="gone" />
-
-    </FrameLayout>
-
+    <!-- 卡片容器 -->
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:orientation="vertical">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/item_card_background"
+        android:paddingVertical="14dp"
+        android:paddingHorizontal="16dp"
+        android:minHeight="56dp">
+
+        <!-- 选择框 -->
+        <CheckBox
+            android:id="@+id/cb_select"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:clickable="false"
+            android:focusable="false"
+            android:scaleX="1.2"
+            android:scaleY="1.2" />
+
+        <!-- 文件夹 / 文件图标 -->
+        <ImageView
+            android:id="@+id/iv_icon"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_marginStart="8dp"
+            android:contentDescription="文件类型图标" />
 
         <!-- 文件名 -->
         <TextView
-            android:id="@+id/file_name"
-            android:layout_width="match_parent"
+            android:id="@+id/tv_file_name"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:textSize="@dimen/text_size_medium"
-            android:textColor="@color/car_text_primary"
-            android:textStyle="bold"
-            android:singleLine="true"
-            android:ellipsize="end"
-            android:text="文件名" />
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:textColor="@color/textPrimary"
+            android:textSize="16sp"
+            android:maxLines="2"
+            android:ellipsize="end" />
 
-        <!-- 文件大小 -->
+        <!-- 文件大小（仅文件显示） -->
         <TextView
-            android:id="@+id/file_size"
-            android:layout_width="match_parent"
+            android:id="@+id/tv_file_info"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="@dimen/text_size_small"
-            android:textColor="@color/car_text_secondary"
-            android:layout_marginTop="2dp"
-            android:singleLine="true"
-            android:text="0 KB" />
+            android:textColor="@color/textSecondary"
+            android:textSize="12sp"
+            android:layout_marginEnd="8dp" />
+
+        <!-- 文件夹导航箭头 -->
+        <ImageView
+            android:id="@+id/iv_navigate"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@drawable/ic_navigate_next"
+            android:contentDescription="进入文件夹"
+            android:visibility="gone" />
 
     </LinearLayout>
 

@@ -4,7 +4,8 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Music note icon -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M44,24 L64,24 L64,44 L84,44 L84,64 L64,64 L64,84 L44,84 L44,64 L24,64 L24,44 L44,44 Z" />
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M40,30 L40,62 C38,60 35,59 32,59 C27,59 23,63 23,68 C23,73 27,77 32,77 C37,77 41,73 41,68 L41,42 L68,37 L68,56 C66,54 63,53 60,53 C55,53 51,57 51,62 C51,67 55,71 60,71 C65,71 69,67 69,62 L69,30 L40,30 Z M41,38 L64,34 L64,30 L41,34 Z"/>
 </vector>

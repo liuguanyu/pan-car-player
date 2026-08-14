@@ -1,33 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 进度条渐变 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- 背景 -->
     <item android:id="@android:id/background">
         <shape>
-            <corners android:radius="2dp" />
             <solid android:color="#33FFFFFF" />
+            <corners android:radius="3dp" />
         </shape>
     </item>
-    
-    <!-- 第二进度（缓冲进度） -->
-    <item android:id="@android:id/secondaryProgress">
-        <clip>
-            <shape>
-                <corners android:radius="2dp" />
-                <solid android:color="#66FFFFFF" />
-            </shape>
-        </clip>
-    </item>
-    
-    <!-- 当前进度 - 渐变色 -->
     <item android:id="@android:id/progress">
         <clip>
             <shape>
-                <corners android:radius="2dp" />
                 <gradient
-                    android:startColor="#00E5FF"
-                    android:centerColor="#2979FF"
-                    android:endColor="#651FFF"
-                    android:angle="0" />
+                    android:type="linear"
+                    android:angle="0"
+                    android:startColor="@color/primary"
+                    android:endColor="@color/accent" />
+                <corners android:radius="3dp" />
             </shape>
         </clip>
     </item>

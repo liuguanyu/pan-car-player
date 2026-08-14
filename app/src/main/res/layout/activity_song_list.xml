@@ -1,264 +1,69 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/car_background">
+    android:background="@color/background">
 
-    <!-- 顶部标题栏 -->
+    <!-- 顶部栏 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="@dimen/spacing_normal"
         android:gravity="center_vertical"
-        android:background="@color/car_primary">
-
-        <ImageButton
-            android:id="@+id/back_button"
-            android:layout_width="@dimen/icon_button_size"
-            android:layout_height="@dimen/icon_button_size"
-            android:src="@android:drawable/ic_menu_revert"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="返回"
-            app:tint="@android:color/white" />
+        android:padding="16dp"
+        android:background="@color/surface">
 
         <TextView
-            android:id="@+id/playlist_title"
+            android:id="@+id/btn_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:gravity="center"
+            android:text="←"
+            android:textSize="22sp"
+            android:textColor="@color/textPrimary"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+
+        <ImageView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@drawable/ic_music_note"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="10dp" />
+
+        <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="播放列表名称"
-            android:textSize="@dimen/text_size_xlarge"
-            android:textColor="@android:color/white"
-            android:textStyle="bold"
-            android:layout_marginStart="@dimen/spacing_normal"
-            android:layout_marginEnd="@dimen/spacing_normal"
-            android:singleLine="true"
-            android:ellipsize="end" />
+            android:text="@string/song_list_title"
+            android:textColor="@color/textPrimary"
+            android:textSize="20sp"
+            android:textStyle="bold" />
 
-        <ImageButton
-            android:id="@+id/sort_button"
-            android:layout_width="@dimen/icon_button_size"
-            android:layout_height="@dimen/icon_button_size"
-            android:src="@android:drawable/ic_menu_sort_by_size"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="排序"
-            app:tint="@android:color/white"
-            android:layout_marginEnd="@dimen/spacing_small" />
-
-        <ImageButton
-            android:id="@+id/play_all_button"
-            android:layout_width="@dimen/icon_button_size"
-            android:layout_height="@dimen/icon_button_size"
-            android:src="@drawable/ic_play"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="播放全部"
-            app:tint="@android:color/white"
-            android:layout_marginEnd="@dimen/spacing_small" />
-
-        <ImageButton
-            android:id="@+id/shuffle_button"
-            android:layout_width="@dimen/icon_button_size"
-            android:layout_height="@dimen/icon_button_size"
-            android:src="@drawable/ic_shuffle"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="随机播放"
-            app:tint="@android:color/white"
-            android:layout_marginEnd="@dimen/spacing_small" />
-
-        <ImageButton
-            android:id="@+id/refresh_button"
-            android:layout_width="@dimen/icon_button_size"
-            android:layout_height="@dimen/icon_button_size"
-            android:src="@android:drawable/ic_popup_sync"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="刷新列表"
-            app:tint="@android:color/white"
-            android:layout_marginEnd="@dimen/spacing_small" />
-
-        <ImageButton
-            android:id="@+id/add_songs_button"
-            android:layout_width="@dimen/icon_button_size"
-            android:layout_height="@dimen/icon_button_size"
-            android:src="@android:drawable/ic_input_add"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="添加歌曲"
-            app:tint="@android:color/white" />
-            
-        <ImageButton
-            android:id="@+id/now_playing_button"
-            android:layout_width="@dimen/icon_button_size"
-            android:layout_height="@dimen/icon_button_size"
-            android:src="@android:drawable/ic_media_play"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="正在播放"
-            app:tint="@color/car_accent"
-            android:visibility="gone"
-            android:layout_marginStart="@dimen/spacing_small" />
+        <TextView
+            android:id="@+id/btn_add_songs"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:gravity="center"
+            android:text="＋"
+            android:textSize="24sp"
+            android:textColor="@color/accent"
+            android:background="?attr/selectableItemBackgroundBorderless" />
 
     </LinearLayout>
 
-    <!-- 歌曲列表 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/cardBackground" />
+
     <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/song_recycler_view"
+        android:id="@+id/rv_songs"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:scrollbars="vertical" />
-
-    <!-- 底部多选控制栏 -->
-    <LinearLayout
-        android:id="@+id/selection_control_bar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="@dimen/spacing_normal"
-        android:background="@color/car_primary"
-        android:visibility="gone"
-        android:gravity="center_vertical">
-
-        <Button
-            android:id="@+id/btn_selection_cancel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="取消"
-            style="@style/Widget.AppCompat.Button.Borderless"
-            android:textColor="@android:color/white" />
-
-        <Space
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1" />
-
-        <TextView
-            android:id="@+id/tv_selection_count"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="已选择 0 项"
-            android:textColor="@android:color/white"
-            android:textSize="@dimen/text_size_medium"
-            android:textStyle="bold" />
-
-        <Space
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1" />
-
-        <Button
-            android:id="@+id/btn_selection_select_all"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="全选"
-            style="@style/Widget.AppCompat.Button.Borderless"
-            android:textColor="@android:color/white" />
-
-        <Button
-            android:id="@+id/btn_selection_delete"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="删除"
-            style="@style/Widget.AppCompat.Button.Borderless"
-            android:textColor="@color/car_error" />
-    </LinearLayout>
-
-    <!-- 空状态 -->
-    <LinearLayout
-        android:id="@+id/empty_state"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:visibility="gone">
-
-        <ImageView
-            android:layout_width="160dp"
-            android:layout_height="160dp"
-            android:src="@android:drawable/ic_menu_upload"
-            android:alpha="0.3"
-            android:contentDescription="Empty" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="还没有歌曲"
-            android:textSize="@dimen/text_size_xlarge"
-            android:layout_marginTop="@dimen/spacing_medium"
-            android:textColor="@color/car_text_secondary" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="点击下方按钮添加歌曲"
-            android:textSize="@dimen/text_size_medium"
-            android:layout_marginTop="@dimen/spacing_small"
-            android:textColor="@color/car_text_secondary" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/add_songs_empty_button"
-            android:layout_width="wrap_content"
-            android:layout_height="@dimen/button_height"
-            android:text="添加歌曲"
-            android:layout_marginTop="@dimen/spacing_large"
-            style="@style/Button.Primary" />
-
-    </LinearLayout>
-
-    <!-- 底部多选控制栏 -->
-    <LinearLayout
-        android:id="@+id/selection_control_bar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="@dimen/spacing_normal"
-        android:background="@color/car_primary"
-        android:visibility="gone"
-        android:gravity="center_vertical">
-
-        <Button
-            android:id="@+id/btn_selection_cancel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="取消"
-            style="@style/Widget.AppCompat.Button.Borderless"
-            android:textColor="@android:color/white" />
-
-        <Space
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1" />
-
-        <TextView
-            android:id="@+id/tv_selection_count"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="已选择 0 项"
-            android:textColor="@android:color/white"
-            android:textSize="@dimen/text_size_medium"
-            android:textStyle="bold" />
-
-        <Space
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1" />
-
-        <Button
-            android:id="@+id/btn_selection_select_all"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="全选"
-            style="@style/Widget.AppCompat.Button.Borderless"
-            android:textColor="@android:color/white" />
-
-        <Button
-            android:id="@+id/btn_selection_delete"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="删除"
-            style="@style/Widget.AppCompat.Button.Borderless"
-            android:textColor="@color/car_error" />
-    </LinearLayout>
+        android:clipToPadding="false"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp" />
 
 </LinearLayout>

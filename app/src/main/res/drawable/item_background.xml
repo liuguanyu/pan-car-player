@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- item_background: RecyclerView item 背景，支持点击涟漪效果 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="?android:attr/colorControlHighlight">
+    <item android:drawable="@color/cardBackground" />
+</ripple>
