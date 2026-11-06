@@ -83,7 +83,6 @@ public class PlayerActivity extends AppCompatActivity {
     private final com.baidu.carplayer.visualizer.VisualizerManager visualizerManager =
             new com.baidu.carplayer.visualizer.VisualizerManager();
     private com.baidu.carplayer.widget.VisualizerView visualizerView;
-    private TextView visualizerName;
     private int visualizerMode;
     private boolean visualizerVisible;
     private static final int REQUEST_VISUALIZER_AUDIO = 401;
@@ -251,7 +250,6 @@ public class PlayerActivity extends AppCompatActivity {
         particleBackgroundView = findViewById(R.id.particle_background);
         playlistButton = findViewById(R.id.playlist_button);
         visualizerView = findViewById(R.id.visualizer_view);
-        visualizerName = findViewById(R.id.visualizer_name);
         visualizerView.attach(visualizerManager);
         String preferred = getSharedPreferences("player_visualizer", MODE_PRIVATE)
                 .getString("mode", "default");
@@ -1109,9 +1107,6 @@ public class PlayerActivity extends AppCompatActivity {
         rotatingDiscView.setVisibility(show ? View.GONE : View.VISIBLE);
         rotatingTextView.setVisibility(show ? View.GONE : View.VISIBLE);
         particleBackgroundView.setVisibility(show ? View.GONE : View.VISIBLE);
-        String[] labels = {"唱片", "频谱柱", "波形", "音频粒子", "跳舞小羊"};
-        visualizerName.setText(show || visualizerMode == 0 ? labels[visualizerMode]
-                : permitted ? "唱片（可视化等待音频会话）" : "唱片（可视化未授权）");
         visualizerView.setActive(show && playing);
         particleBackgroundView.setPlaying(!show && playing);
     }

@@ -104,18 +104,6 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
 
-        <TextView
-            android:id="@+id/visualizer_name"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|center_horizontal"
-            android:padding="8dp"
-            android:elevation="16dp"
-            android:text="唱片"
-            android:textColor="@android:color/white"
-            android:textSize="16sp"
-            android:background="#99000000" />
-
         <!-- 音量控制悬浮条 -->
         <SeekBar
             android:id="@+id/volume_bar"
