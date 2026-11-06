@@ -32,6 +32,7 @@ import com.baidu.carplayer.auth.BaiduAuthService;
 import com.baidu.carplayer.model.DownloadLinkResponse;
 import com.baidu.carplayer.network.BaiduPanService;
 import com.baidu.carplayer.network.RetrofitClient;
+import androidx.media.session.MediaButtonReceiver;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
@@ -1084,7 +1085,14 @@ public class AudioPlayerService extends Service {
     
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // 处理通知栏和媒体按键的控制动作
+        // 系统方向盘/蓝牙媒体按键会通过 MEDIA_BUTTON Intent 投递给当前活动的 MediaSession。
+        // 必须显式交给 MediaButtonReceiver，MediaSessionCompat 才会触发上面的回调。
+        if (intent != null && Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
+            MediaButtonReceiver.handleIntent(mediaSession, intent);
+            return START_STICKY;
+        }
+
+        // 处理通知栏按钮等自定义控制动作
         if (intent != null && intent.getAction() != null) {
             handleMediaAction(intent.getAction());
         }

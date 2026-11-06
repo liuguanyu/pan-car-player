@@ -84,6 +84,15 @@
             android:theme="@style/Theme.CarPlayer.NoActionBar"
             tools:ignore="LockedOrientationActivity" />
             
+        <!-- 系统方向盘/蓝牙媒体按键接收器，转发到 AudioPlayerService 的 MediaSession -->
+        <receiver
+            android:name="androidx.media.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
         <!-- 音频播放服务 -->
         <service
             android:name=".service.AudioPlayerService"
