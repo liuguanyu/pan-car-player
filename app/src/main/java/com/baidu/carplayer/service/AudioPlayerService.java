@@ -131,6 +131,11 @@ public class AudioPlayerService extends Service {
         void onPlayWhenReadyChanged(boolean playWhenReady);
         void onPlayerError(PlaybackException error);
         void onPositionDiscontinuity();
+        default void onAudioSessionIdChanged(int audioSessionId) {}
+    }
+
+    public int getAudioSessionId() {
+        return exoPlayer != null ? exoPlayer.getAudioSessionId() : 0;
     }
     
     @Override
@@ -177,6 +182,20 @@ public class AudioPlayerService extends Service {
         Log.d(TAG, "扩展渲染器模式: ON (启用扩展解码器)");
         
         playerListener = new Player.Listener() {
+            @Override
+            public void onAudioSessionIdChanged(int audioSessionId) {
+                if (playbackStateListener != null) {
+                    playbackStateListener.onAudioSessionIdChanged(audioSessionId);
+                }
+            }
+
+            @Override
+            public void onIsPlayingChanged(boolean isPlaying) {
+                if (playbackStateListener != null) {
+                    playbackStateListener.onPlaybackStateChanged(exoPlayer.getPlaybackState());
+                }
+            }
+
             @Override
             public void onPlaybackStateChanged(int playbackState) {
                 String stateStr = "";

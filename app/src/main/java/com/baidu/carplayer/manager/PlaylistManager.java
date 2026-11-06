@@ -430,7 +430,7 @@ public class PlaylistManager {
         while (hasMore) {
             // 同步调用Retrofit接口，处理分页
             Response<FileListResponse> response = service.getFileList(
-                    "list", accessToken, path, "name", start, limit, 1, 0, 0
+                    "list", accessToken, path, "name", 0, start, limit, 1, 0, 0
             ).execute();
 
             if (response.isSuccessful() && response.body() != null) {

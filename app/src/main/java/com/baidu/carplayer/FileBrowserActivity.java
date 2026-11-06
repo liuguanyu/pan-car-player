@@ -140,6 +140,7 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
                 accessToken,
                 currentPath,
                 "name",
+                0,   // desc=0：正序排列，确保每次请求返回顺序一致
                 0,
                 1000,
                 1,
@@ -187,14 +188,40 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
             e.printStackTrace();
         }
 
+        // 在 setFiles 之前先排序，避免 UI 先显示未排序列表再闪烁为排序后的视觉效果
+        // 排序规则：文件夹优先 → 按名称（忽略大小写）
+        java.text.Collator collator = java.text.Collator.getInstance(java.util.Locale.CHINESE);
+        collator.setStrength(java.text.Collator.PRIMARY); // 忽略大小写和音调差异
+        files.sort((f1, f2) -> {
+            // 文件夹始终在前
+            if (f1.getIsdir() != f2.getIsdir()) {
+                return f1.getIsdir() == 1 ? -1 : 1;
+            }
+            int result = collator.compare(f1.getServerFilename(), f2.getServerFilename());
+            // Collator 可能将大小写、音调不同的名称判定为相等，补充稳定的二级排序键，
+            // 避免最终顺序依赖网盘接口返回顺序。
+            if (result == 0) {
+                result = f1.getServerFilename().compareTo(f2.getServerFilename());
+            }
+            if (result == 0) {
+                result = f1.getPath().compareTo(f2.getPath());
+            }
+            if (result == 0) {
+                result = Long.compare(f1.getFsId(), f2.getFsId());
+            }
+            return sortAscending ? result : -result;
+        });
+
         currentFiles = files;
 
         runOnUiThread(() -> {
             hideLoading();
             currentPathText.setText(currentPath);
+            // 数据已排序完毕，适配器直接展示，不再二次排序
             fileAdapter.setFiles(files);
-            // 应用当前的排序设置
-            fileAdapter.sortByName(sortAscending);
+            // 切换目录时复用同一个 RecyclerView，必须显式回到列表顶部，
+            // 否则 LayoutManager 会保留上一级目录的滚动位置。
+            fileRecyclerView.post(() -> fileRecyclerView.scrollToPosition(0));
 
             if (files.isEmpty()) {
                 showEmpty();
@@ -302,9 +329,10 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
                 accessToken,
                 path,
                 "name",
+                0,    // desc=0：正序
                 0,
                 1000,
-                1, // 递归参数? 百度API好像不支持一步递归，必须手动递归
+                1,    // web=1，返回完整的文件信息
                 0,
                 0
         );
@@ -352,8 +380,21 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
             return;
         }
         
+        // 对收集到的歌曲按名称排序，保证添加顺序稳定
+        java.text.Collator collator = java.text.Collator.getInstance(java.util.Locale.CHINESE);
+        collator.setStrength(java.text.Collator.PRIMARY);
+        songsToAdd.sort((s1, s2) -> {
+            int result = collator.compare(s1.getTitle(), s2.getTitle());
+            if (result == 0) {
+                result = s1.getTitle().compareTo(s2.getTitle());
+            }
+            if (result == 0) {
+                result = s1.getPath().compareTo(s2.getPath());
+            }
+            return result;
+        });
+        
         // 批量添加到数据库
-        // 这里为了简单，循环添加，实际应该用批量接口
         int total = songsToAdd.size();
         for (Song song : songsToAdd) {
             playlistManager.addSongToPlaylist(playlistId, song, new PlaylistManager.OnResultListener() {

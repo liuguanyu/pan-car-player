@@ -98,6 +98,24 @@
             android:layout_gravity="center"
             android:elevation="12dp" />
         
+        <com.baidu.carplayer.widget.VisualizerView
+            android:id="@+id/visualizer_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/visualizer_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:padding="8dp"
+            android:elevation="16dp"
+            android:text="唱片"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:background="#99000000" />
+
         <!-- 音量控制悬浮条 -->
         <SeekBar
             android:id="@+id/volume_bar"
@@ -249,6 +267,15 @@
                     android:contentDescription="音量"
                     app:tint="@android:color/white"
                     android:layout_marginStart="@dimen/spacing_large" />
+
+                <ImageButton
+                    android:id="@+id/visualizer_button"
+                    android:layout_width="@dimen/icon_button_size"
+                    android:layout_height="@dimen/icon_button_size"
+                    android:src="@drawable/ic_visualizer"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="切换音频可视化"
+                    app:tint="@android:color/white" />
 
                 <ImageButton
                     android:id="@+id/playlist_button"

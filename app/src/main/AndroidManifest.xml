@@ -14,6 +14,9 @@
     
     <!-- 媒体权限（Android 13+） - 仅音频 -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- 当前播放器会话的 FFT 可视化，不保存录音 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     
     <!-- 后台播放权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

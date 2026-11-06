@@ -59,6 +59,7 @@ public interface BaiduPanService {
             @Query("access_token") String accessToken,
             @Query("dir") String dir,
             @Query("order") String order,
+            @Query("desc") int desc,
             @Query("start") int start,
             @Query("limit") int limit,
             @Query("web") int web,

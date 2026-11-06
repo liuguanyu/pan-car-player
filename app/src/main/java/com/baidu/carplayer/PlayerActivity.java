@@ -80,6 +80,13 @@ public class PlayerActivity extends AppCompatActivity {
     private RotatingDiscView rotatingDiscView;
     private com.baidu.carplayer.widget.RotatingTextView rotatingTextView;
     private ParticleBackgroundView particleBackgroundView;
+    private final com.baidu.carplayer.visualizer.VisualizerManager visualizerManager =
+            new com.baidu.carplayer.visualizer.VisualizerManager();
+    private com.baidu.carplayer.widget.VisualizerView visualizerView;
+    private TextView visualizerName;
+    private int visualizerMode;
+    private boolean visualizerVisible;
+    private static final int REQUEST_VISUALIZER_AUDIO = 401;
     
     // 播放列表相关
     private FrameLayout playlistContainer;
@@ -125,6 +132,7 @@ public class PlayerActivity extends AppCompatActivity {
             AudioPlayerService.LocalBinder binder = (AudioPlayerService.LocalBinder) service;
             audioPlayerService = binder.getService();
             serviceBound = true;
+            updateVisualization();
             
             // 设置播放状态监听器
             audioPlayerService.setPlaybackStateListener(new AudioPlayerService.PlaybackStateListener() {
@@ -143,6 +151,11 @@ public class PlayerActivity extends AppCompatActivity {
                     updateParticleBackground();
                 }
                 
+                @Override
+                public void onAudioSessionIdChanged(int audioSessionId) {
+                    updateVisualization();
+                }
+
                 @Override
                 public void onPlayerError(PlaybackException error) {
                     // 处理播放错误
@@ -237,6 +250,18 @@ public class PlayerActivity extends AppCompatActivity {
         rotatingTextView = findViewById(R.id.rotating_text);
         particleBackgroundView = findViewById(R.id.particle_background);
         playlistButton = findViewById(R.id.playlist_button);
+        visualizerView = findViewById(R.id.visualizer_view);
+        visualizerName = findViewById(R.id.visualizer_name);
+        visualizerView.attach(visualizerManager);
+        String preferred = getSharedPreferences("player_visualizer", MODE_PRIVATE)
+                .getString("mode", "default");
+        String[] modes = com.baidu.carplayer.visualizer.VisualizerManager.MODES;
+        for (int i = 0; i < modes.length; i++) {
+            if (modes[i].equals(preferred)) visualizerMode = i;
+        }
+        visualizerManager.switchTo(modes[visualizerMode]);
+        findViewById(R.id.visualizer_button).setOnClickListener(v -> cycleVisualizer());
+        updateVisualization();
         
         // 播放列表相关视图
         playlistContainer = findViewById(R.id.playlist_container);
@@ -457,10 +482,7 @@ public class PlayerActivity extends AppCompatActivity {
      * 更新粒子背景状态
      */
     private void updateParticleBackground() {
-        if (particleBackgroundView != null && audioPlayerService != null) {
-            boolean isPlaying = audioPlayerService.isPlaying();
-            particleBackgroundView.setPlaying(isPlaying);
-        }
+        updateVisualization();
     }
     
     /**
@@ -855,7 +877,11 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        visualizerVisible = false;
+        visualizerManager.release();
+        if (visualizerView != null) visualizerView.setActive(false);
         if (serviceBound) {
+            audioPlayerService.setPlaybackStateListener(null);
             unbindService(serviceConnection);
             serviceBound = false;
         }
@@ -1051,6 +1077,63 @@ public class PlayerActivity extends AppCompatActivity {
         headerLayout.setBackground(gradientDrawable);
     }
     
+    private void cycleVisualizer() {
+        visualizerMode = (visualizerMode + 1) % com.baidu.carplayer.visualizer.VisualizerManager.MODES.length;
+        String mode = com.baidu.carplayer.visualizer.VisualizerManager.MODES[visualizerMode];
+        visualizerManager.switchTo(mode);
+        getSharedPreferences("player_visualizer", MODE_PRIVATE).edit().putString("mode", mode).apply();
+        if (visualizerMode != 0 && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "音频可视化需要音频采集权限，仅分析当前播放会话，不保存录音", Toast.LENGTH_LONG).show();
+            requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, REQUEST_VISUALIZER_AUDIO);
+        }
+        updateVisualization();
+    }
+
+    private void updateVisualization() {
+        if (visualizerView == null) return;
+        boolean permitted = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        boolean show = visualizerMode != 0 && permitted;
+        boolean playing = visualizerVisible && serviceBound && audioPlayerService != null
+                && audioPlayerService.isPlaying();
+        visualizerManager.setPlaying(show && playing);
+        boolean attached = false;
+        if (show && visualizerVisible && serviceBound) {
+            attached = visualizerManager.attachToSession(audioPlayerService.getAudioSessionId());
+        } else {
+            visualizerManager.release();
+        }
+        show = show && attached;
+        visualizerView.setVisibility(show ? View.VISIBLE : View.GONE);
+        rotatingDiscView.setVisibility(show ? View.GONE : View.VISIBLE);
+        rotatingTextView.setVisibility(show ? View.GONE : View.VISIBLE);
+        particleBackgroundView.setVisibility(show ? View.GONE : View.VISIBLE);
+        String[] labels = {"唱片", "频谱柱", "波形", "音频粒子", "跳舞小羊"};
+        visualizerName.setText(show || visualizerMode == 0 ? labels[visualizerMode]
+                : permitted ? "唱片（可视化等待音频会话）" : "唱片（可视化未授权）");
+        visualizerView.setActive(show && playing);
+        particleBackgroundView.setPlaying(!show && playing);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_VISUALIZER_AUDIO) {
+            if (grantResults.length == 0 || grantResults[0] != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "未授予权限，继续使用唱片模式，不影响播放", Toast.LENGTH_SHORT).show();
+            }
+            updateVisualization();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        visualizerVisible = true;
+        updateVisualization();
+    }
+
     @Override
     protected void onPause() {
         super.onPause();
@@ -1064,6 +1147,8 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         super.onStop();
+        visualizerVisible = false;
+        updateVisualization();
         // 当Activity完全不可见时再次保存播放进度（双重保险）
         if (serviceBound && audioPlayerService != null) {
             audioPlayerService.savePlaybackState();

@@ -121,9 +121,12 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
 
     /**
      * 按文件名排序
+     * 使用 Collator 实现中文友好的排序，保证顺序稳定
      * @param ascending true为正序，false为倒序
      */
     public void sortByName(boolean ascending) {
+        java.text.Collator collator = java.text.Collator.getInstance(java.util.Locale.CHINESE);
+        collator.setStrength(java.text.Collator.PRIMARY);
         Collections.sort(files, new Comparator<FileItem>() {
             @Override
             public int compare(FileItem f1, FileItem f2) {
@@ -132,8 +135,17 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
                     return f1.getIsdir() == 1 ? -1 : 1;
                 }
                 
-                // 同为文件夹或同为文件时，按文件名排序
-                int result = f1.getServerFilename().compareToIgnoreCase(f2.getServerFilename());
+                // 同为文件夹或同为文件时，按文件名排序（中文友好）
+                int result = collator.compare(f1.getServerFilename(), f2.getServerFilename());
+                if (result == 0) {
+                    result = f1.getServerFilename().compareTo(f2.getServerFilename());
+                }
+                if (result == 0) {
+                    result = f1.getPath().compareTo(f2.getPath());
+                }
+                if (result == 0) {
+                    result = Long.compare(f1.getFsId(), f2.getFsId());
+                }
                 return ascending ? result : -result;
             }
         });
