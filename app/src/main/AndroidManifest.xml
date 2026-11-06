@@ -9,8 +9,6 @@
     <!-- 存储权限（读取本地缓存） -->
     <!-- 读存储权限（Android 12及以下，Android 13+使用细粒度媒体权限） -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <!-- 写存储权限（Android 9及以下，Android 10+需使用MediaStore API） -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     
     <!-- 媒体权限（Android 13+） - 仅音频 -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
@@ -90,7 +88,11 @@
         <service
             android:name=".service.AudioPlayerService"
             android:foregroundServiceType="mediaPlayback"
-            android:exported="false" />
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </service>
             
     </application>
 

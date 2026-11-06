@@ -145,7 +145,7 @@ public class Song {
     }
     
     /**
-     * 按歌曲标题排序，标题相同时按目录、完整路径和歌曲ID稳定排序。
+     * 按目录排序，保证同一文件夹的歌曲放在一起；同目录内再按歌曲标题排序。
      * @param songs 歌曲列表
      * @param ascending true为正序，false为倒序
      */
@@ -155,15 +155,18 @@ public class Song {
         Collections.sort(songs, new Comparator<Song>() {
             @Override
             public int compare(Song s1, Song s2) {
-                // 与添加歌曲路径页面保持一致：默认按歌曲名称排序。
-                int result = collator.compare(s1.getTitle(), s2.getTitle());
-                // Collator 判定相等时继续使用原始字符串和完整路径，
-                // 避免数据库返回顺序或添加顺序导致列表看起来随机。
+                // 先按文件夹路径排序，保证同一文件夹的歌曲放在一起。
+                int result = collator.compare(getDirectoryPath(s1.getPath()), getDirectoryPath(s2.getPath()));
+                // Collator 判定相等时继续使用原始路径，避免目录顺序不稳定。
                 if (result == 0) {
-                    result = s1.getTitle().compareTo(s2.getTitle());
+                    result = getDirectoryPath(s1.getPath()).compareTo(getDirectoryPath(s2.getPath()));
+                }
+                // 同一文件夹内再按歌曲标题排序。
+                if (result == 0) {
+                    result = collator.compare(s1.getTitle(), s2.getTitle());
                 }
                 if (result == 0) {
-                    result = collator.compare(getDirectoryPath(s1.getPath()), getDirectoryPath(s2.getPath()));
+                    result = s1.getTitle().compareTo(s2.getTitle());
                 }
                 if (result == 0) {
                     result = s1.getPath().compareTo(s2.getPath());

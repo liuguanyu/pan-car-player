@@ -28,6 +28,7 @@ import com.baidu.carplayer.manager.LyricsManager;
 import com.baidu.carplayer.manager.PlaylistManager;
 import com.baidu.carplayer.model.Song;
 import com.baidu.carplayer.service.AudioPlayerService;
+import com.baidu.carplayer.auth.BaiduAuthService;
 import com.baidu.carplayer.utils.LrcParser;
 import com.baidu.carplayer.widget.LrcView;
 import com.baidu.carplayer.widget.RotatingDiscView;
@@ -467,10 +468,18 @@ public class PlayerActivity extends AppCompatActivity {
     private void handlePlaybackError(PlaybackException error) {
         runOnUiThread(() -> {
             hasPlaybackError = true;
-            String errorMessage = "播放失败: " + (error.getMessage() != null ? error.getMessage() : "未知错误");
+            String message = error.getMessage();
+            boolean authExpired = message != null && message.contains("登录已失效");
+            if (authExpired) {
+                new BaiduAuthService(PlayerActivity.this).logout();
+                Intent intent = new Intent(PlayerActivity.this, LoginActivity.class);
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(intent);
+                finish();
+                return;
+            }
+            String errorMessage = "播放失败: " + (message != null ? message : "未知错误");
             Toast.makeText(PlayerActivity.this, errorMessage, Toast.LENGTH_LONG).show();
-            
-            // 更新UI状态
             playPauseButton.setImageResource(R.drawable.ic_play);
             playPauseButton.setContentDescription("播放");
         });
@@ -888,6 +897,50 @@ public class PlayerActivity extends AppCompatActivity {
         }
         // 停止流光动画
         stopShimmerAnimation();
+    }
+    
+    /**
+     * 拦截方向盘媒体按键事件，转发给 AudioPlayerService
+     * 确保在播放页前台时，方向盘按键能正常控制播放
+     */
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+            switch (event.getKeyCode()) {
+                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                    if (serviceBound && audioPlayerService != null) {
+                        if (audioPlayerService.isPlaying()) {
+                            audioPlayerService.pause();
+                        } else {
+                            audioPlayerService.play();
+                        }
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY:
+                    if (serviceBound && audioPlayerService != null) {
+                        audioPlayerService.play();
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_PAUSE:
+                    if (serviceBound && audioPlayerService != null) {
+                        audioPlayerService.pause();
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_NEXT:
+                    if (serviceBound && audioPlayerService != null) {
+                        audioPlayerService.playNext();
+                        updatePlayerState();
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS:
+                    if (serviceBound && audioPlayerService != null) {
+                        audioPlayerService.playPrevious();
+                        updatePlayerState();
+                    }
+                    return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
     }
     
     /**

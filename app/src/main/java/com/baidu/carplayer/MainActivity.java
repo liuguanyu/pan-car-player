@@ -115,6 +115,48 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
             serviceBound = false;
         }
     }
+    
+    /**
+     * 拦截方向盘媒体按键事件，转发给 AudioPlayerService
+     * 确保在主页面时，方向盘按键能正常控制播放
+     */
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+            switch (event.getKeyCode()) {
+                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                    if (serviceBound && audioPlayerService != null) {
+                        if (audioPlayerService.isPlaying()) {
+                            audioPlayerService.pause();
+                        } else {
+                            audioPlayerService.play();
+                        }
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY:
+                    if (serviceBound && audioPlayerService != null) {
+                        audioPlayerService.play();
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_PAUSE:
+                    if (serviceBound && audioPlayerService != null) {
+                        audioPlayerService.pause();
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_NEXT:
+                    if (serviceBound && audioPlayerService != null) {
+                        audioPlayerService.playNext();
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS:
+                    if (serviceBound && audioPlayerService != null) {
+                        audioPlayerService.playPrevious();
+                    }
+                    return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
 
     private void initViews() {
         playlistListView = findViewById(R.id.playlist_list_view);

@@ -165,6 +165,48 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
             serviceBound = false;
         }
     }
+    
+    /**
+     * 拦截方向盘媒体按键事件，转发给 AudioPlayerService
+     * 确保在歌曲列表页时，方向盘按键能正常控制播放
+     */
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+            switch (event.getKeyCode()) {
+                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                    if (serviceBound && audioPlayerService != null) {
+                        if (audioPlayerService.isPlaying()) {
+                            audioPlayerService.pause();
+                        } else {
+                            audioPlayerService.play();
+                        }
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY:
+                    if (serviceBound && audioPlayerService != null) {
+                        audioPlayerService.play();
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_PAUSE:
+                    if (serviceBound && audioPlayerService != null) {
+                        audioPlayerService.pause();
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_NEXT:
+                    if (serviceBound && audioPlayerService != null) {
+                        audioPlayerService.playNext();
+                    }
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS:
+                    if (serviceBound && audioPlayerService != null) {
+                        audioPlayerService.playPrevious();
+                    }
+                    return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
 
     private void initViews() {
         songRecyclerView = findViewById(R.id.song_recycler_view);
