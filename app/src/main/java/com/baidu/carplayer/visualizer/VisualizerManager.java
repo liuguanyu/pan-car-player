@@ -5,7 +5,7 @@ import android.media.audiofx.Visualizer;
 import android.util.Log;
 
 /** Owns capture only while the player page is visible. All effect state is updated on the UI thread. */
-public final class VisualizerManager {
+public final class VisualizerManager implements VisualizerCoordinator.Capture {
     public static final String[] MODES = {"default", "bars", "wave", "particles", "sheep"};
     private static final byte[] EMPTY = new byte[0];
     private final AudioVisualizer[] effects = {new BarsVisualizer(), new WaveVisualizer(),
@@ -14,23 +14,24 @@ public final class VisualizerManager {
     private Visualizer capture;
     private int sessionId;
     private volatile byte[] lastFft = EMPTY;
-    private volatile int generation;
+    private final CaptureGate gate = new CaptureGate();
     private boolean playing;
     private boolean initialized;
 
+    @Override
     public boolean attachToSession(int id) {
         // Session 0 captures global output: never attach to it.
         if (id <= 0) { release(); return false; }
         if (capture != null && sessionId == id) return true;
         release();
-        final int token = generation;
+        final int token = gate.issue();
         Visualizer next = null;
         try {
             next = new Visualizer(id);
             next.setCaptureSize(Visualizer.getCaptureSizeRange()[1]);
             next.setDataCaptureListener(new Visualizer.OnDataCaptureListener() {
                 @Override public void onFftDataCapture(Visualizer v, byte[] fft, int rate) {
-                    if (generation == token) lastFft = fft.clone();
+                    if (gate.accepts(token)) lastFft = fft.clone();
                 }
                 @Override public void onWaveFormDataCapture(Visualizer v, byte[] wave, int rate) {}
             }, Visualizer.getMaxCaptureRate(), false, true);
@@ -49,9 +50,11 @@ public final class VisualizerManager {
         active.reset();
         initialized = false;
     }
+    @Override
     public void setPlaying(boolean value) {
         if (playing == value) return;
         playing = value;
+        gate.setPlaying(value);
         if (!value) lastFft = EMPTY;
         if (capture != null) {
             try { capture.setEnabled(value); }
@@ -59,15 +62,22 @@ public final class VisualizerManager {
         }
     }
     public void draw(Canvas canvas, int width, int height) {
-        // A paused first frame still needs dimensions (e.g. opening the sheep scene while paused).
-        if (playing || !initialized) {
+        // 播放时喂入最新频谱；暂停/停止后持续喂空数据，让效果平滑过渡到 0 态再停帧。
+        // 首帧即使暂停也要拿到尺寸（例如暂停时打开小羊场景）。
+        if (playing || !initialized || !active.isAtRest()) {
             active.update(playing ? lastFft : EMPTY, width, height);
             initialized = true;
         }
         active.draw(canvas);
     }
+
+    /** 停止播放后效果是否仍在回落；为 true 时视图应继续绘制下一帧。 */
+    public boolean isSettling() {
+        return !playing && initialized && !active.isAtRest();
+    }
+    @Override
     public void release() {
-        generation++; sessionId = 0; lastFft = EMPTY;
+        gate.invalidate(); sessionId = 0; lastFft = EMPTY;
         initialized = false;
         if (capture != null) {
             try { capture.setEnabled(false); } catch (RuntimeException ignored) {}

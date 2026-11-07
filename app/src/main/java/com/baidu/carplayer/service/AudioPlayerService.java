@@ -1,13 +1,8 @@
 package com.baidu.carplayer.service;
 
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
@@ -16,43 +11,37 @@ import android.os.Build;
 import android.os.IBinder;
 import android.os.Looper;
 import android.support.v4.media.session.MediaSessionCompat;
-import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
-import android.annotation.SuppressLint;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import android.Manifest;
-import android.content.pm.PackageManager;
-import androidx.core.app.ActivityCompat;
-import androidx.core.app.NotificationCompat;
-import androidx.core.app.NotificationManagerCompat;
-import com.baidu.carplayer.MainActivity;
-import com.baidu.carplayer.R;
 import com.baidu.carplayer.auth.BaiduAuthService;
-import com.baidu.carplayer.model.DownloadLinkResponse;
 import com.baidu.carplayer.network.BaiduPanService;
 import com.baidu.carplayer.network.RetrofitClient;
-import androidx.media.session.MediaButtonReceiver;
+import com.baidu.carplayer.playback.AudioFormat;
+import com.baidu.carplayer.playback.PlaybackCommand;
+import com.baidu.carplayer.player.FocusPolicy;
+import com.baidu.carplayer.player.MediaSessionBridge;
+import com.baidu.carplayer.player.PlaybackQueue;
+import com.baidu.carplayer.player.PlayerEngine;
+import com.baidu.carplayer.player.PlaybackNotifier;
+import com.baidu.carplayer.player.PlaybackPersistence;
+import com.baidu.carplayer.playback.PlaybackCoordinator;
+import com.baidu.carplayer.playback.PlaybackRequestTracker;
+import com.baidu.carplayer.playback.PlaybackState;
+import com.baidu.carplayer.network.LogRedactor;
+import com.baidu.carplayer.repository.BaiduDownloadUrlRepository;
+import com.baidu.carplayer.repository.DownloadUrlRepository;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.DefaultRenderersFactory;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 
 import androidx.annotation.OptIn;
 import androidx.media3.common.util.UnstableApi;
 
-import java.lang.reflect.Type;
-import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
-import retrofit2.Call;
-import retrofit2.Callback;
-import retrofit2.Response;
 
 /**
  * 音频播放服务 - 使用Media3(ExoPlayer)实现音频播放
@@ -62,60 +51,83 @@ import retrofit2.Response;
 public class AudioPlayerService extends Service {
     
     private static final String TAG = "AudioPlayerService";
-    private static final String CHANNEL_ID = "audio_player_channel";
     private static final int NOTIFICATION_ID = 1;
-    private static final String PREFS_NAME = "AudioPlayerPrefs";
-    private static final String KEY_PLAYLIST = "playlist";
-    private static final String KEY_CURRENT_POSITION = "current_position";
-    private static final String KEY_PLAYBACK_PROGRESS = "playback_progress";
-    private static final String KEY_PLAY_MODE = "play_mode";
-    private static final String KEY_IS_PLAYING = "is_playing";
     
     private ExoPlayer exoPlayer;
     // 手动管理音频焦点，以正确处理蓝牙导航等场景的焦点抢占
     private AudioFocusRequest audioFocusRequest;
     private AudioManager audioManager;
     private MediaSessionCompat mediaSession;
+    private MediaSessionBridge mediaSessionBridge;
     private final IBinder binder = new LocalBinder();
     
     private Player.Listener playerListener;
-    private PlaybackStateListener playbackStateListener;
+    // 使用多订阅集合，避免不同 Activity 互相覆盖播放状态监听器。
     
     // 播放列表相关
-    private List<com.baidu.carplayer.model.Song> playlist;
-    private int currentPosition = 0;
-    private PlayMode playMode = PlayMode.ORDER;
+    /** 队列与导航（下标、随机序列）由 PlaybackQueue 持有。 */
+    private final PlaybackQueue queue = new PlaybackQueue();
     
     // 随机播放相关
-    private List<Integer> shuffledIndices;      // 洗牌后的索引序列
-    private int shufflePosition = -1;           // 当前在洗牌序列中的位置
-    private SecureRandom secureRandom;          // 密码学安全随机数生成器
+
     
     // 百度网盘认证服务
     private BaiduAuthService authService;
     
     // 持久化相关
-    private SharedPreferences sharedPreferences;
-    private Gson gson;
-    
-    // 待处理的seek位置（用于冷启动恢复播放进度）
-    private Long pendingSeekPosition = null;
+    private PlaybackPersistence persistence;
+    private PlaybackNotifier notifier;
+
+    // 加载请求代次与 seek/autoplay 意图；网络回调只能提交当前请求的结果。
+    private final PlaybackRequestTracker requestTracker = new PlaybackRequestTracker();
+    private final PlaybackCoordinator playbackCoordinator = new PlaybackCoordinator(
+            new PlaybackState(null, -1, -1L, PlaybackState.Status.IDLE, false, 0L, 0L, 0, 0, 0L));
+    private DownloadUrlRepository downloadUrlRepository;
+    @Nullable
+    private DownloadUrlRepository.Cancellable pendingUrlRequest;
+    private boolean destroyed = false;
+    // 最近一次加载/解码失败；之后的 PLAY 需要重新获取下载地址，而不是恢复旧媒体项。
+    private boolean loadFailed = false;
     
     // 音频焦点相关状态
     private boolean wasPlayingBeforeFocusLoss = false;
-    private float volumeBeforeDuck = 1.0f;
+    // 用户音量与导航降音分开记录：降音期间调整音量不会被焦点恢复覆盖。
+    private float userVolume = 1.0f;
+    private boolean ducked = false;
     
     // 通知栏控制动作
     private static final String ACTION_PLAY = "com.baidu.carplayer.ACTION_PLAY";
     private static final String ACTION_PAUSE = "com.baidu.carplayer.ACTION_PAUSE";
-    private static final String ACTION_PLAY_PAUSE = "com.baidu.carplayer.ACTION_PLAY_PAUSE";
-    private static final String ACTION_NEXT = "com.baidu.carplayer.ACTION_NEXT";
-    private static final String ACTION_PREVIOUS = "com.baidu.carplayer.ACTION_PREVIOUS";
+    private static final String ACTION_PLAY_PAUSE = PlaybackNotifier.ACTION_PLAY_PAUSE;
+    private static final String ACTION_NEXT = PlaybackNotifier.ACTION_NEXT;
+    private static final String ACTION_PREVIOUS = PlaybackNotifier.ACTION_PREVIOUS;
     
     // 定时保存进度
+    private final android.os.Handler commandHandler = new android.os.Handler(Looper.getMainLooper());
     private final android.os.Handler progressSaveHandler = new android.os.Handler(Looper.getMainLooper());
     private static final long PROGRESS_SAVE_INTERVAL = 5000; // 每5秒保存一次进度
     
+    // 播放中按固定间隔发布进度快照，页面不再自行轮询 Service。
+    private static final long PROGRESS_PUBLISH_INTERVAL = 500;
+    private final Runnable progressPublishRunnable = new Runnable() {
+        @Override
+        public void run() {
+            publishPlaybackState();
+            if (exoPlayer != null && exoPlayer.isPlaying()) {
+                commandHandler.postDelayed(this, PROGRESS_PUBLISH_INTERVAL);
+            }
+        }
+    };
+
+    private void startProgressPublish() {
+        commandHandler.removeCallbacks(progressPublishRunnable);
+        commandHandler.post(progressPublishRunnable);
+    }
+
+    private void stopProgressPublish() {
+        commandHandler.removeCallbacks(progressPublishRunnable);
+    }
+
     private final Runnable progressSaveRunnable = new Runnable() {
         @Override
         public void run() {
@@ -129,35 +141,37 @@ public class AudioPlayerService extends Service {
     /**
      * 播放模式枚举
      */
+    /** 播放模式；与 {@link PlaybackQueue.Mode} 同序，可直接按 ordinal 互转。 */
     public enum PlayMode {
         ORDER,      // 顺序播放
         RANDOM,     // 随机播放
-        SINGLE      // 单曲循环
-    }
-    
-    /**
-     * 播放状态监听器接口
-     */
-    public interface PlaybackStateListener {
-        void onPlaybackStateChanged(int playbackState);
-        void onPlayWhenReadyChanged(boolean playWhenReady);
-        void onPlayerError(PlaybackException error);
-        void onPositionDiscontinuity();
-        default void onAudioSessionIdChanged(int audioSessionId) {}
-    }
+        SINGLE;     // 单曲循环
 
-    public int getAudioSessionId() {
-        return exoPlayer != null ? exoPlayer.getAudioSessionId() : 0;
+        /** 未知或缺失的名字回落到 ORDER（例如旧版本写入的值）。 */
+        static PlaybackQueue.Mode fromName(String name) {
+            if (name == null) return PlaybackQueue.Mode.ORDER;
+            try {
+                return PlaybackQueue.Mode.valueOf(name);
+            } catch (IllegalArgumentException e) {
+                return PlaybackQueue.Mode.ORDER;
+            }
+        }
     }
     
+
     @Override
     public void onCreate() {
         super.onCreate();
-        authService = new BaiduAuthService(this);
-        sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        gson = new Gson();
+        destroyed = false;
+        authService = BaiduAuthService.getInstance(this);
+        if (downloadUrlRepository == null) {
+            downloadUrlRepository = new BaiduDownloadUrlRepository(
+                    RetrofitClient.getPanApiInstance().create(BaiduPanService.class), authService);
+        }
+        persistence = PlaybackPersistence.from(this);
         initializePlayer();
-        createNotificationChannel();
+        notifier = new PlaybackNotifier(this);
+        notifier.createChannel();
         setupAudioFocus();
         setupMediaSession();
         restorePlaybackState(); // 恢复播放状态
@@ -168,93 +182,37 @@ public class AudioPlayerService extends Service {
      * Media3相比ExoPlayer 2.x有更好的性能和格式支持
      */
     private void initializePlayer() {
-        // 使用DefaultRenderersFactory，Media3会自动选择最佳解码器
-        // 设置enableDecoderFallback=true，当硬件解码失败时自动使用软件解码
-        DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this)
-            .setEnableDecoderFallback(true)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
-        
-        // 创建 AudioAttributes
-        androidx.media3.common.AudioAttributes audioAttributes =
-                new androidx.media3.common.AudioAttributes.Builder()
-                        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
-                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
-                        .build();
-
-        // 创建ExoPlayer实例
-        exoPlayer = new ExoPlayer.Builder(this)
-            .setRenderersFactory(renderersFactory)
-            .setSeekBackIncrementMs(5000)
-            .setSeekForwardIncrementMs(5000)
-            .setAudioAttributes(audioAttributes, false) // 关闭ExoPlayer自动焦点，由Service手动管理
-            .build();
-        
-        Log.d(TAG, "ExoPlayer初始化完成，已配置AudioAttributes和自动焦点管理");
-        Log.d(TAG, "已启用解码器回退机制");
-        Log.d(TAG, "扩展渲染器模式: ON (启用扩展解码器)");
+        exoPlayer = PlayerEngine.create(this);
         
         playerListener = new Player.Listener() {
             @Override
             public void onAudioSessionIdChanged(int audioSessionId) {
-                if (playbackStateListener != null) {
-                    playbackStateListener.onAudioSessionIdChanged(audioSessionId);
-                }
+                publishPlaybackState();
             }
 
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
-                if (playbackStateListener != null) {
-                    playbackStateListener.onPlaybackStateChanged(exoPlayer.getPlaybackState());
+                publishPlaybackState();
+                if (isPlaying) {
+                    startProgressPublish();
+                } else {
+                    stopProgressPublish();
                 }
             }
 
             @Override
             public void onPlaybackStateChanged(int playbackState) {
-                String stateStr = "";
-                switch (playbackState) {
-                    case Player.STATE_IDLE:
-                        stateStr = "IDLE (空闲)";
-                        break;
-                    case Player.STATE_BUFFERING:
-                        stateStr = "BUFFERING (缓冲中)";
-                        break;
-                    case Player.STATE_READY:
-                        stateStr = "READY (准备就绪)";
-                        Log.d(TAG, "✓ 播放器准备就绪，可以播放");
-                        
-                        // 当播放器准备就绪时，输出音频格式信息
-                        if (exoPlayer.getAudioFormat() != null) {
-                            Log.d(TAG, "========== 音频格式信息 ==========");
-                            Log.d(TAG, "采样率: " + exoPlayer.getAudioFormat().sampleRate + " Hz");
-                            Log.d(TAG, "声道数: " + exoPlayer.getAudioFormat().channelCount);
-                            Log.d(TAG, "编码: " + exoPlayer.getAudioFormat().sampleMimeType);
-                            Log.d(TAG, "比特率: " + exoPlayer.getAudioFormat().bitrate + " bps");
-                            Log.d(TAG, "================================");
-                        } else {
-                            Log.w(TAG, "⚠️ 无法获取音频格式信息");
-                        }
-                        
-                        // 处理待处理的seek操作（用于冷启动恢复播放进度）
-                        if (pendingSeekPosition != null) {
-                            Log.d(TAG, "执行待处理的seek操作: " + pendingSeekPosition + "ms");
-                            exoPlayer.seekTo(pendingSeekPosition);
-                            exoPlayer.play(); // 确保seek后继续播放
-                            pendingSeekPosition = null;
-                        }
-                        
-                        // 检查播放状态
-                        Log.d(TAG, "========== 播放状态检查 ==========");
-                        Log.d(TAG, "播放状态: " + (exoPlayer.getPlayWhenReady() ? "播放中" : "已暂停"));
-                        Log.d(TAG, "当前位置: " + exoPlayer.getCurrentPosition() + " ms");
-                        Log.d(TAG, "缓冲位置: " + exoPlayer.getBufferedPosition() + " ms");
-                        Log.d(TAG, "播放速度: " + exoPlayer.getPlaybackParameters().speed);
-                        Log.d(TAG, "================================");
-                        break;
-                    case Player.STATE_ENDED:
-                        stateStr = "ENDED (播放结束)";
-                        break;
+                Log.d(TAG, "播放状态变化: " + PlayerEngine.stateName(playbackState));
+                if (playbackState == Player.STATE_READY) {
+                    PlayerEngine.logReady(exoPlayer);
+                    // 只消费与当前加载请求绑定的 seek/autoplay 意图。
+                    PlaybackCommand command = requestTracker.consumeSeek();
+                    if (command != null) {
+                        Log.d(TAG, "执行待处理的seek操作: " + command.getSeekPositionMs() + "ms");
+                        exoPlayer.seekTo(command.getSeekPositionMs());
+                        exoPlayer.setPlayWhenReady(command.isPlayWhenReady());
+                    }
                 }
-                Log.d(TAG, "播放状态变化: " + stateStr);
                 
                 if (playbackState == Player.STATE_ENDED) {
                     // 播放结束，自动播放下一首，并保存状态
@@ -262,9 +220,7 @@ public class AudioPlayerService extends Service {
                     playNext();
                 }
 
-                if (playbackStateListener != null) {
-                    playbackStateListener.onPlaybackStateChanged(playbackState);
-                }
+                publishPlaybackState();
                 updateNotification();
             }
             
@@ -280,9 +236,7 @@ public class AudioPlayerService extends Service {
                     stopProgressSave();
                 }
                 
-                if (playbackStateListener != null) {
-                    playbackStateListener.onPlayWhenReadyChanged(playWhenReady);
-                }
+                publishPlaybackState();
                 updateNotification();
             }
             
@@ -297,18 +251,14 @@ public class AudioPlayerService extends Service {
                 }
                 Log.e(TAG, "================================");
                 
-                if (playbackStateListener != null) {
-                    playbackStateListener.onPlayerError(error);
-                }
+                notifyPlayerError(error);
             }
             
             @Override
             public void onPositionDiscontinuity(@NonNull Player.PositionInfo oldPosition,
                                                @NonNull Player.PositionInfo newPosition,
                                                int reason) {
-                if (playbackStateListener != null) {
-                    playbackStateListener.onPositionDiscontinuity();
-                }
+                publishPlaybackState();
             }
         };
         
@@ -334,60 +284,21 @@ public class AudioPlayerService extends Service {
                 .build();
     }
     
-    /**
-     * 设置MediaSession
-     */
+    /** 建立系统媒体会话；方向盘/蓝牙/系统控件都通过它转换为播放命令。 */
     private void setupMediaSession() {
-        mediaSession = new MediaSessionCompat(this, "AudioPlayerService");
-        mediaSession.setCallback(new MediaSessionCallback());
-        
-        // 设置支持的媒体控制动作（包含所有方向盘按键对应的操作）
-        PlaybackStateCompat.Builder stateBuilder = new PlaybackStateCompat.Builder()
-                .setActions(
-                        PlaybackStateCompat.ACTION_PLAY |
-                        PlaybackStateCompat.ACTION_PAUSE |
-                        PlaybackStateCompat.ACTION_PLAY_PAUSE |
-                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
-                        PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
-                        PlaybackStateCompat.ACTION_STOP |
-                        PlaybackStateCompat.ACTION_SEEK_TO
-                );
-        mediaSession.setPlaybackState(stateBuilder.build());
-        
-        // 设置 MediaButtonReceiver 以使方向盘按键能传递到 MediaSession
-        // 这确保了在后台播放时也能接收媒体按键事件
-        // 注意：MediaSessionCompat 在 API 29+ 上会自动处理媒体按键
-        mediaSession.setActive(true);
-    }
-    
-    /**
-     * MediaSession回调
-     */
-    private class MediaSessionCallback extends MediaSessionCompat.Callback {
-        @Override
-        public void onPlay() {
-            play();
-        }
-        
-        @Override
-        public void onPause() {
-            pause();
-        }
-        
-        @Override
-        public void onSkipToNext() {
-            playNext();
-        }
-        
-        @Override
-        public void onSkipToPrevious() {
-            playPrevious();
-        }
-        
-        @Override
-        public void onStop() {
-            stop();
-        }
+        mediaSessionBridge = new MediaSessionBridge(this, "AudioPlayerService",
+                new MediaSessionBridge.CommandSink() {
+                    @Override
+                    public void dispatch(PlaybackCommand.Type type) {
+                        AudioPlayerService.this.dispatch(type);
+                    }
+
+                    @Override
+                    public void seekTo(long positionMs) {
+                        dispatchCommand(PlaybackCommand.seek(requestTracker.getGeneration(), positionMs));
+                    }
+                });
+        mediaSession = mediaSessionBridge.session();
     }
     
     /**
@@ -395,16 +306,16 @@ public class AudioPlayerService extends Service {
      * 正确处理蓝牙导航提示音、来电等场景的焦点抢占
      */
     private final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener = focusChange -> {
-        Log.d(TAG, "音频焦点变化: " + focusChange + " (" + getFocusChangeName(focusChange) + ")");
-        
-        switch (focusChange) {
-            case AudioManager.AUDIOFOCUS_GAIN:
-                // 焦点恢复（如导航提示音结束、通话结束）
-                Log.d(TAG, "✓ 获得音频焦点");
+        boolean playWhenReady = exoPlayer != null && exoPlayer.getPlayWhenReady();
+        FocusPolicy.Action action = FocusPolicy.forFocusChange(focusChange, playWhenReady);
+        Log.d(TAG, "音频焦点变化: " + focusChange + " (" + getFocusChangeName(focusChange) + ") -> " + action);
+
+        switch (action) {
+            case RESTORE:
+                // 焦点恢复（导航提示音结束、通话结束）：恢复用户音量，必要时继续播放。
+                ducked = false;
                 if (exoPlayer != null) {
-                    // 恢复音量（处理蓝牙导航 duck 场景：之前被降到 20%，现在恢复）
-                    exoPlayer.setVolume(volumeBeforeDuck);
-                    // 恢复播放（处理来电/导航的暂停场景）
+                    exoPlayer.setVolume(userVolume);
                     if (wasPlayingBeforeFocusLoss) {
                         exoPlayer.play();
                         wasPlayingBeforeFocusLoss = false;
@@ -413,37 +324,31 @@ public class AudioPlayerService extends Service {
                     updateNotification();
                 }
                 break;
-                
-            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                // 短暂失去焦点（如来电、导航语音等）
-                Log.d(TAG, "⚠ 短暂失去音频焦点（来电/导航），暂停播放");
-                if (exoPlayer != null && exoPlayer.getPlayWhenReady()) {
-                    wasPlayingBeforeFocusLoss = true;
-                    exoPlayer.pause();
-                    updateMediaSessionState();
-                    updateNotification();
-                }
+
+            case PAUSE_TRANSIENT:
+                wasPlayingBeforeFocusLoss = true;
+                exoPlayer.pause();
+                updateMediaSessionState();
+                updateNotification();
                 break;
-                
-            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                // 短暂失去焦点但可降低音量（如导航提示音）
-                Log.d(TAG, "⚠ 短暂失去音频焦点（可降音），降低音量至20%");
-                if (exoPlayer != null && exoPlayer.getPlayWhenReady()) {
-                    volumeBeforeDuck = exoPlayer.getVolume();
-                    exoPlayer.setVolume(0.2f);
-                }
+
+            case DUCK:
+                ducked = true;
+                exoPlayer.setVolume(FocusPolicy.duckedVolume(userVolume));
                 break;
-                
-            case AudioManager.AUDIOFOCUS_LOSS:
-                // 永久失去焦点（如其他音乐应用开始播放）
-                Log.d(TAG, "✗ 永久失去音频焦点，停止播放");
+
+            case STOP:
+                wasPlayingBeforeFocusLoss = false;
                 if (exoPlayer != null) {
-                    wasPlayingBeforeFocusLoss = false;
                     exoPlayer.pause();
                     updateMediaSessionState();
                     updateNotification();
                 }
                 abandonAudioFocus();
+                break;
+
+            case NONE:
+            default:
                 break;
         }
     };
@@ -477,9 +382,13 @@ public class AudioPlayerService extends Service {
      * 播放音频
      * ExoPlayer 2.19.1对ALAC等格式有更好的支持
      */
-    public void play(String url) {
+    private void play(String url) {
+        if (destroyed || exoPlayer == null) {
+            Log.w(TAG, "播放器已销毁，忽略播放请求");
+            return;
+        }
         Log.d(TAG, "========== 开始播放音频 ==========");
-        Log.d(TAG, "URL: " + url);
+        Log.d(TAG, "URL: " + LogRedactor.redact(url));
         
         // 检测文件扩展名以识别音频格式
         String fileExtension = "";
@@ -520,18 +429,21 @@ public class AudioPlayerService extends Service {
         if (requestAudioFocus()) {
             Log.d(TAG, "✓ 音频焦点获取成功");
             
+            loadFailed = false;
             MediaItem mediaItem = MediaItem.fromUri(url);
             exoPlayer.setMediaItem(mediaItem);
             
             Log.d(TAG, "准备播放器...");
             
-            // 如果有待处理的seek操作，先不自动播放，等待准备好后seek再播放
-            if (pendingSeekPosition != null) {
-                Log.d(TAG, "有待处理的seek操作，暂停自动播放等待准备完成...");
+            // 恢复命令的 seek 和 autoplay 意图由同一 generation 绑定。
+            PlaybackCommand command = requestTracker.current();
+            if (command != null && command.hasSeekPosition()) {
+                Log.d(TAG, "有待处理的seek操作，等待准备完成...");
                 exoPlayer.setPlayWhenReady(false);
             } else {
-                Log.d(TAG, "开始播放...");
-                exoPlayer.setPlayWhenReady(true);
+                boolean autoplay = command == null || command.isPlayWhenReady();
+                Log.d(TAG, autoplay ? "开始播放..." : "加载完成后保持暂停");
+                exoPlayer.setPlayWhenReady(autoplay);
             }
             
             exoPlayer.prepare();
@@ -555,7 +467,7 @@ public class AudioPlayerService extends Service {
             Log.d(TAG, "==================================");
             
             updateMediaSessionState();
-            startForeground(NOTIFICATION_ID, createNotification());
+            startForeground(NOTIFICATION_ID, notifier.build(mediaSession, queue.current(), isPlaying()));
             Log.d(TAG, "✓ 音频播放已启动");
             Log.d(TAG, "==================================");
         } else {
@@ -566,7 +478,16 @@ public class AudioPlayerService extends Service {
     /**
      * 播放（继续播放）
      */
-    public void play() {
+    private void play() {
+        if (destroyed || exoPlayer == null) {
+            return;
+        }
+        if (requestTracker.current() == null && needsReload() && getCurrentSong() != null) {
+            Log.d(TAG, "播放器无可用媒体，重新加载当前歌曲");
+            playAtPosition(queue.getIndex(), true, null);
+            return;
+        }
+        requestTracker.setPlayWhenReady(true);
         if (requestAudioFocus()) {
             exoPlayer.play();
             savePlaybackState(); // 开始播放时保存状态
@@ -578,18 +499,16 @@ public class AudioPlayerService extends Service {
     /**
      * 设置播放列表
      */
-    public void setPlaylist(List<com.baidu.carplayer.model.Song> playlist) {
-        this.playlist = playlist;
-        // 重置洗牌序列
-        shuffledIndices = null;
-        shufflePosition = -1;
+    private void setPlaylist(List<com.baidu.carplayer.model.Song> songs) {
+        queue.setSongs(songs);
         savePlaybackState(); // 保存播放状态
+        publishPlaybackState();
     }
     
     /**
      * 在指定位置播放
      */
-    public void playAtPosition(int position) {
+    private void playAtPosition(int position) {
         playAtPosition(position, true, null);
     }
     
@@ -598,7 +517,7 @@ public class AudioPlayerService extends Service {
      * @param position 歌曲在列表中的位置
      * @param saveState 是否保存播放状态（用于恢复播放进度时避免覆盖）
      */
-    public void playAtPosition(int position, boolean saveState) {
+    private void playAtPosition(int position, boolean saveState) {
         playAtPosition(position, saveState, null);
     }
     
@@ -608,127 +527,73 @@ public class AudioPlayerService extends Service {
      * @param saveState 是否保存播放状态（用于恢复播放进度时避免覆盖）
      * @param seekToPosition 播放器准备好后要seek到的位置（毫秒），null表示不seek
      */
-    public void playAtPosition(int position, boolean saveState, Long seekToPosition) {
-        if (playlist == null || position < 0 || position >= playlist.size()) {
+    private void playAtPosition(int position, boolean saveState, Long seekToPosition) {
+        if (!queue.moveTo(position)) {
             return;
         }
-        
-        currentPosition = position;
-        pendingSeekPosition = seekToPosition;
+        com.baidu.carplayer.model.Song song = queue.current();
+        final long requestGeneration = requestTracker.begin(song.getId(), seekToPosition, true).getRequestId();
+        // 切歌后立即停掉旧歌：否则在新地址返回前（弱网/断网时可能很久）
+        // 界面已显示新歌而扬声器仍在播旧歌，用户会以为切歌无效、顺序错乱。
+        stopCurrentMedia();
         Log.d(TAG, "========== playAtPosition ==========");
         Log.d(TAG, "位置: " + position);
         Log.d(TAG, "seekToPosition: " + seekToPosition);
-        Log.d(TAG, "pendingSeekPosition已设置: " + pendingSeekPosition);
-        com.baidu.carplayer.model.Song song = playlist.get(position);
-        playFromBaiduPan(song);
+        publishPlaybackState();
+        playFromBaiduPan(song, requestGeneration);
         
         if (saveState) {
             savePlaybackState(); // 保存播放状态
         }
     }
     
-    /**
-     * 播放指定歌曲
-     */
-    public void playSong(com.baidu.carplayer.model.Song song) {
-        if (playlist != null) {
-            // 查找歌曲在播放列表中的位置
-            for (int i = 0; i < playlist.size(); i++) {
-                if (playlist.get(i).getId() == song.getId()) {
-                    currentPosition = i;
-                    break;
-                }
-            }
-        }
-        playFromBaiduPan(song);
-    }
-    
-    /**
-     * 从百度网盘播放歌曲
-     */
-    private void playFromBaiduPan(com.baidu.carplayer.model.Song song) {
-        final String authExpiredMessage = "登录已失效，请重新登录";
-        Log.d(TAG, "准备播放歌曲: " + song.getTitle() + ", fsId=" + song.getFsId());
-        
-        String accessToken = authService.getAccessToken();
-        if (accessToken == null) {
-            Log.e(TAG, "无法获取访问令牌");
-            if (playbackStateListener != null) {
-                playbackStateListener.onPlayerError(
-                    new PlaybackException(authExpiredMessage, null, PlaybackException.ERROR_CODE_UNSPECIFIED)
-                );
-            }
+
+    /** 停止并清空当前媒体，进度与时长随之归零；播放意图保留在请求上。 */
+    private void stopCurrentMedia() {
+        if (exoPlayer == null || destroyed || exoPlayer.getMediaItemCount() == 0) {
             return;
         }
-        
-        // 获取下载链接
-        // 注意：百度网盘API要求 fsids 参数为 JSON 数组格式，例如 "[900294067865041]"
-        // 必须添加 dlink=1 参数才能获取下载链接
-        String fsidsJson = "[" + song.getFsId() + "]";
-        RetrofitClient.getPanApiInstance()
-            .create(BaiduPanService.class)
-            .getFileDownloadLink("filemetas", accessToken, fsidsJson, 1)  // 添加 dlink=1 参数
-            .enqueue(new Callback<DownloadLinkResponse>() {
-                @Override
-                public void onResponse(@NonNull Call<DownloadLinkResponse> call, @NonNull Response<DownloadLinkResponse> response) {
-                    if (response.isSuccessful() && response.body() != null) {
-                        DownloadLinkResponse downloadResponse = response.body();
-                        // 下载链接在 list 数组的第一个元素中
-                        if (downloadResponse.getErrno() == 0 && downloadResponse.getList() != null
-                                && !downloadResponse.getList().isEmpty()) {
-                            String downloadUrl = downloadResponse.getList().get(0).getDlink();
-                            Log.d(TAG, "获取下载链接成功: " + downloadUrl);
-                            
-                            // 百度网盘下载链接需要附加 access_token 参数
-                            String urlWithToken = downloadUrl + (downloadUrl.contains("?") ? "&" : "?") + "access_token=" + accessToken;
-                            Log.d(TAG, "带token的下载链接: " + urlWithToken);
-                            
-                            // 使用带token的下载链接播放
-                            play(urlWithToken);
-                        } else {
-                            Log.e(TAG, "获取下载链接失败，errno=" + downloadResponse.getErrno());
-                            if (playbackStateListener != null) {
-                                String message = isAuthError(downloadResponse.getErrno())
-                                        ? authExpiredMessage : "获取下载链接失败";
-                                playbackStateListener.onPlayerError(
-                                    new PlaybackException(message, null, PlaybackException.ERROR_CODE_UNSPECIFIED)
-                                );
-                            }
-                        }
-                    } else {
-                        Log.e(TAG, "API响应失败: " + response.code());
-                        if (playbackStateListener != null) {
-                            String message = (response.code() == 401 || response.code() == 403)
-                                    ? authExpiredMessage : "API响应失败";
-                            playbackStateListener.onPlayerError(
-                                new PlaybackException(message, null, PlaybackException.ERROR_CODE_UNSPECIFIED)
-                            );
-                        }
-                    }
-                }
-                
-                @Override
-                public void onFailure(@NonNull Call<DownloadLinkResponse> call, @NonNull Throwable t) {
-                    Log.e(TAG, "获取下载链接网络请求失败", t);
-                    if (playbackStateListener != null) {
-                        playbackStateListener.onPlayerError(
-                            new PlaybackException("网络请求失败: " + t.getMessage(), t, PlaybackException.ERROR_CODE_UNSPECIFIED)
-                        );
-                    }
-                }
-            });
+        exoPlayer.stop();
+        exoPlayer.clearMediaItems();
     }
-    
-    /** 百度网盘常见的 token 失效错误码。 */
-    private boolean isAuthError(int errno) {
-        return errno == 110 || errno == 111 || errno == 31034;
+
+    /**
+     * 从百度网盘播放歌曲。requestGeneration 用于丢弃过期网络回调，切歌时取消上一请求。
+     */
+    private void playFromBaiduPan(com.baidu.carplayer.model.Song song, long requestGeneration) {
+        Log.d(TAG, "准备播放歌曲: " + song.getTitle() + ", fsId=" + song.getFsId());
+        if (pendingUrlRequest != null) {
+            pendingUrlRequest.cancel();
+        }
+        pendingUrlRequest = downloadUrlRepository.resolve(song.getFsId(), new DownloadUrlRepository.Callback() {
+            @Override
+            public void onSuccess(String playableUrl) {
+                if (!requestTracker.isCurrent(requestGeneration)) {
+                    Log.d(TAG, "忽略过期的下载链接响应，generation=" + requestGeneration);
+                    return;
+                }
+                pendingUrlRequest = null;
+                play(playableUrl);
+            }
+
+            @Override
+            public void onError(String message, boolean authExpired, @Nullable Throwable cause) {
+                if (!requestTracker.isCurrent(requestGeneration)) {
+                    return;
+                }
+                pendingUrlRequest = null;
+                Log.e(TAG, "获取下载链接失败: " + message);
+                requestTracker.finish(requestGeneration);
+                notifyPlayerError(new PlaybackException(message, cause, PlaybackException.ERROR_CODE_UNSPECIFIED));
+            }
+        });
     }
 
     /**
      * 检查播放器是否实际加载了媒体项
      * @return true如果播放器有媒体项，false如果播放器为空
      */
-    public boolean isPlayerReady() {
+    private boolean isPlayerReady() {
         if (exoPlayer == null) {
             return false;
         }
@@ -741,340 +606,298 @@ public class AudioPlayerService extends Service {
     /**
      * 获取当前歌曲
      */
-    public com.baidu.carplayer.model.Song getCurrentSong() {
-        if (playlist != null && currentPosition >= 0 && currentPosition < playlist.size()) {
-            return playlist.get(currentPosition);
+    private com.baidu.carplayer.model.Song getCurrentSong() {
+        return queue.current();
+    }
+
+    /** 按稳定 ID 切歌；id 不存在时不改变当前歌曲。 */
+    private void playSongById(long songId) {
+        if (queue.moveToSongId(songId)) {
+            playAtPosition(queue.getIndex());
         }
-        return null;
     }
     
     /**
      * 上一曲
      */
-    public void playPrevious() {
-        if (playlist == null || playlist.isEmpty()) {
-            return;
+    private void playPrevious() {
+        int target = queue.previous();
+        if (target != PlaybackQueue.STAY) {
+            playAtPosition(target);
         }
-        
-        switch (playMode) {
-            case RANDOM:
-                if (shuffledIndices == null || shuffledIndices.isEmpty()) {
-                    generateShuffleOrder();
-                }
-                if (shufflePosition > 0) {
-                    shufflePosition--;
-                    currentPosition = shuffledIndices.get(shufflePosition);
-                }
-                // 如果已经是洗牌序列的第一首，则不变
-                break;
-            case SINGLE:
-                // 单曲循环模式下，不切换
-                break;
-            case ORDER:
-            default:
-                // 顺序播放模式下，播放上一首
-                currentPosition--;
-                if (currentPosition < 0) {
-                    currentPosition = playlist.size() - 1; // 循环到最后一首
-                }
-                break;
-        }
-        
-        playAtPosition(currentPosition);
     }
     
-    /**
-     * 下一曲
-     */
-    public void playNext() {
-        if (playlist == null || playlist.isEmpty()) {
-            return;
+    /** 下一曲。顺序模式循环，随机模式一轮播完重新洗牌，单曲循环不切换。 */
+    private void playNext() {
+        int target = queue.next();
+        if (target != PlaybackQueue.STAY) {
+            playAtPosition(target);
         }
-        
-        switch (playMode) {
-            case RANDOM:
-                if (shuffledIndices == null || shuffledIndices.isEmpty() || shuffledIndices.size() != playlist.size()) {
-                    generateShuffleOrder();
-                }
-                shufflePosition++;
-                if (shufflePosition >= shuffledIndices.size()) {
-                    // 播完一轮，重新洗牌，但避免首尾衔接重复
-                    int lastPlayed = shuffledIndices.get(shuffledIndices.size() - 1);
-                    generateShuffleOrder();
-                    if (shuffledIndices.size() > 1 && shuffledIndices.get(0) == lastPlayed) {
-                        int swapPos = 1 + secureRandom.nextInt(shuffledIndices.size() - 1);
-                        Collections.swap(shuffledIndices, 0, swapPos);
-                    }
-                    shufflePosition = 0;
-                }
-                currentPosition = shuffledIndices.get(shufflePosition);
-                break;
-            case SINGLE:
-                // 单曲循环模式下，不切换
-                break;
-            case ORDER:
-            default:
-                // 顺序播放模式下，播放下一首
-                currentPosition++;
-                if (currentPosition >= playlist.size()) {
-                    currentPosition = 0; // 循环到第一首
-                }
-                break;
-        }
-        
-        playAtPosition(currentPosition);
     }
     
-    /**
-     * 获取播放模式
-     */
-    public PlayMode getPlayMode() {
-        return playMode;
-    }
     
     /**
      * 设置播放模式
      */
-    public void setPlayMode(PlayMode playMode) {
-        this.playMode = playMode;
-        if (playMode == PlayMode.RANDOM) {
-            generateShuffleOrder();
-        }
+    private void setPlayMode(PlaybackQueue.Mode mode) {
+        queue.setMode(mode);
         savePlaybackState(); // 保存播放状态
+        publishPlaybackState();
     }
     
     /**
      * 设置随机播放模式
      */
-    public void setShuffleMode(boolean shuffle) {
-        this.playMode = shuffle ? PlayMode.RANDOM : PlayMode.ORDER;
-        if (shuffle) {
-            generateShuffleOrder();
-        }
+    private void setShuffleMode(boolean shuffle) {
+        queue.setMode(shuffle ? PlaybackQueue.Mode.RANDOM : PlaybackQueue.Mode.ORDER);
+        publishPlaybackState();
     }
     
-    /**
-     * 使用 Fisher-Yates 洗牌算法 + SecureRandom 生成随机播放序列
-     * 确保每首歌在一个周期内恰好播放一次
-     */
+    /** 重新生成随机序列（恢复随机模式时使用）。 */
     private void generateShuffleOrder() {
-        if (playlist == null || playlist.isEmpty()) return;
-        
-        int size = playlist.size();
-        shuffledIndices = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) {
-            shuffledIndices.add(i);
-        }
-        
-        if (secureRandom == null) {
-            secureRandom = new SecureRandom();
-        }
-        
-        // Fisher-Yates 洗牌
-        for (int i = size - 1; i > 0; i--) {
-            int j = secureRandom.nextInt(i + 1);
-            Collections.swap(shuffledIndices, i, j);
-        }
-        
-        // 将当前正在播放的歌曲放到洗牌序列的第一个位置
-        if (currentPosition >= 0 && currentPosition < size) {
-            int currentIndex = shuffledIndices.indexOf(currentPosition);
-            if (currentIndex > 0) {
-                Collections.swap(shuffledIndices, 0, currentIndex);
-            }
-        }
-        shufflePosition = 0;
-        
-        Log.d(TAG, "Generated shuffle order, size=" + size + ", shufflePosition=0");
+        queue.setMode(PlaybackQueue.Mode.RANDOM);
+        Log.d(TAG, "重生成了随机播放序列, size=" + queue.size());
     }
     
-    /**
-     * 获取音量
-     */
-    public float getVolume() {
-        return exoPlayer.getVolume();
-    }
     
     /**
      * 暂停播放
      */
-    public void pause() {
+    private void pause() {
+        requestTracker.setPlayWhenReady(false);
+        if (exoPlayer == null || destroyed) {
+            return;
+        }
         exoPlayer.pause();
         savePlaybackState(); // 暂停时保存状态
         updateMediaSessionState();
     }
     
-    /**
-     * 继续播放
-     */
-    public void resume() {
-        if (requestAudioFocus()) {
-            exoPlayer.play();
-            updateMediaSessionState();
-        }
-    }
     
     /**
      * 停止播放
      */
-    public void stop() {
+    private void stop() {
+        if (exoPlayer == null || destroyed) return;
         exoPlayer.stop();
         abandonAudioFocus();
         stopForeground(true);
         updateMediaSessionState();
     }
     
-    /**
-     * 上一曲
-     */
-    public void previous() {
-        exoPlayer.seekToPrevious();
-    }
     
-    /**
-     * 下一曲
-     */
-    public void next() {
-        exoPlayer.seekToNext();
-    }
     
     /**
      * 跳转到指定位置
      */
-    public void seekTo(long positionMs) {
+    private void seekTo(long positionMs) {
+        if (exoPlayer == null || destroyed) return;
         exoPlayer.seekTo(positionMs);
+        publishPlaybackState();
     }
     
     /**
      * 设置音量
      */
-    public void setVolume(float volume) {
-        exoPlayer.setVolume(volume);
+    private void setVolume(float volume) {
+        userVolume = Math.max(0f, Math.min(1f, volume));
+        if (exoPlayer != null && !ducked) {
+            exoPlayer.setVolume(userVolume);
+        }
+        publishPlaybackState();
     }
     
-    /**
-     * 获取当前播放位置
-     */
-    public long getCurrentPosition() {
-        return exoPlayer.getCurrentPosition();
-    }
-    
-    /**
-     * 获取总时长
-     */
-    public long getDuration() {
-        return exoPlayer.getDuration();
-    }
-    
+
     /**
      * 是否正在播放
      */
-    public boolean isPlaying() {
+    private boolean isPlaying() {
+        if (exoPlayer == null) return false;
         return exoPlayer.getPlayWhenReady() && exoPlayer.getPlaybackState() == Player.STATE_READY;
     }
     
     /**
      * 设置播放状态监听器
      */
-    public void setPlaybackStateListener(PlaybackStateListener listener) {
-        this.playbackStateListener = listener;
+    /** 所有外部控制入口的统一命令入口；ExoPlayer 只在主线程上被操作。 */
+    public void dispatch(PlaybackCommand.Type type) {
+        dispatchCommand(PlaybackCommand.simple(type, requestTracker.getGeneration()));
     }
-    
-    /**
-     * 创建通知渠道
-     */
-    private void createNotificationChannel() {
-        NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID,
-                "音频播放",
-                NotificationManager.IMPORTANCE_LOW
-        );
-        channel.setDescription("音频播放控制通知");
-        
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        manager.createNotificationChannel(channel);
-    }
-    
-    /**
-     * 创建 MediaStyle 通知（含播放控制按钮）
-     * MediaStyle 通知是 MediaSession 正确接收媒体按键的前提条件
-     */
-    private Notification createNotification() {
-        Intent intent = new Intent(this, MainActivity.class);
-        PendingIntent contentIntent = PendingIntent.getActivity(
-                this,
-                0,
-                intent,
-                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
-        );
-        
-        // 创建通知栏控制按钮的 PendingIntent（通过 Service 的 onStartCommand 处理）
-        // 上一首
-        Intent prevIntent = new Intent(this, AudioPlayerService.class);
-        prevIntent.setAction(ACTION_PREVIOUS);
-        PendingIntent prevPendingIntent = PendingIntent.getService(
-                this, 1, prevIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        
-        // 播放/暂停
-        Intent playPauseIntent = new Intent(this, AudioPlayerService.class);
-        playPauseIntent.setAction(ACTION_PLAY_PAUSE);
-        PendingIntent playPausePendingIntent = PendingIntent.getService(
-                this, 2, playPauseIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        
-        // 下一首
-        Intent nextIntent = new Intent(this, AudioPlayerService.class);
-        nextIntent.setAction(ACTION_NEXT);
-        PendingIntent nextPendingIntent = PendingIntent.getService(
-                this, 3, nextIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        
-        // 获取当前歌曲信息用于显示
-        String title = "音乐播放中";
-        String subtitle = "";
-        if (playlist != null && currentPosition >= 0 && currentPosition < playlist.size()) {
-            com.baidu.carplayer.model.Song song = playlist.get(currentPosition);
-            title = song.getTitle() != null ? song.getTitle() : "未知歌曲";
-            subtitle = song.getArtist() != null ? song.getArtist() : "";
+
+    public void dispatchCommand(PlaybackCommand command) {
+        if (command == null || destroyed) return;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            commandHandler.post(() -> dispatchCommand(command));
+            return;
         }
-        
-        boolean playing = isPlaying();
-        
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle(title)
-                .setContentText(subtitle.isEmpty() ? "百度网盘车载播放器" : subtitle)
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
-                .setContentIntent(contentIntent)
-                .setOngoing(true)
-                // 使用 MediaStyle 通知，这是 MediaSession 工作的核心要求
-                .setStyle(new androidx.media.app.NotificationCompat.MediaStyle()
-                        .setMediaSession(mediaSession.getSessionToken())
-                        .setShowActionsInCompactView(0, 1, 2)) // 在紧凑视图中显示三个按钮
-                // 添加控制按钮：[上一首][播放/暂停][下一首]
-                .addAction(R.drawable.ic_skip_previous, "上一首", prevPendingIntent)
-                .addAction(playing ? R.drawable.ic_pause : R.drawable.ic_play,
-                           playing ? "暂停" : "播放", playPausePendingIntent)
-                .addAction(R.drawable.ic_skip_next, "下一首", nextPendingIntent)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT);
-        
-        return builder.build();
-    }
-    
-    /**
-     * 更新通知
-     */
-    @SuppressLint("MissingPermission")
-    private void updateNotification() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                return;
+        Log.d(TAG, "dispatchCommand: " + command.getType());
+        switch (command.getType()) {
+            case PLAY:
+                play();
+                break;
+            case PAUSE:
+                pause();
+                break;
+            case TOGGLE:
+                if (isPlaying()) pause(); else play();
+                break;
+            case NEXT:
+                playNext();
+                break;
+            case PREVIOUS:
+                playPrevious();
+                break;
+            case STOP:
+                stop();
+                break;
+            case SEEK:
+                seekTo(command.getSeekPositionMs());
+                break;
+            case SELECT:
+                playSongById(command.getSongId());
+                break;
+            case SET_PLAY_MODE: {
+                PlaybackQueue.Mode[] modes = PlaybackQueue.Mode.values();
+                int ordinal = command.getPlayMode();
+                setPlayMode(ordinal >= 0 && ordinal < modes.length ? modes[ordinal] : PlaybackQueue.Mode.ORDER);
+                break;
             }
+            case SET_VOLUME:
+                setVolume(command.getVolume());
+                break;
+            case SAVE_STATE:
+                savePlaybackState();
+                break;
+            default:
+                break;
         }
-        
-        // 同步更新 MediaSession 状态
+        publishPlaybackState();
+    }
+
+    private boolean needsReload() {
+        return loadFailed || exoPlayer.getPlayerError() != null || exoPlayer.getMediaItemCount() == 0;
+    }
+
+    /**
+     * 恢复上次保存的播放会话。播放器已有媒体时只同步状态（热恢复），
+     * 否则重新加载歌曲并定位到保存的进度（冷启动）。
+     * @return 没有可恢复的会话时返回 false
+     */
+    public boolean resumeSavedSession() {
+        if (queue.isEmpty() || queue.current() == null) {
+            return false;
+        }
+        if (!isPlayerReady() && requestTracker.current() == null) {
+            long savedProgress = getSavedProgress();
+            Log.d(TAG, "冷启动恢复：重新加载歌曲，进度=" + savedProgress + "ms");
+            playAtPosition(queue.getIndex(), false, savedProgress > 0 ? savedProgress : null);
+        } else {
+            publishPlaybackState();
+        }
+        return true;
+    }
+
+    /**
+     * 用新的歌曲列表开始播放。songId 有效时从该歌曲开始，否则使用 fallbackIndex。
+     */
+    public void startPlaylist(List<com.baidu.carplayer.model.Song> songs, long songId,
+                              int fallbackIndex, boolean shuffle) {
+        if (songs == null || songs.isEmpty()) return;
+        setPlaylist(new ArrayList<>(songs));
+        int index = -1;
+        if (songId != -1) {
+            index = com.baidu.carplayer.model.Song.findSongPosition(queue.getSongs(), songId);
+        }
+        if (index < 0) {
+            index = fallbackIndex >= 0 && fallbackIndex < queue.size() ? fallbackIndex : 0;
+        }
+        queue.moveTo(index);
+        if (shuffle) {
+            setShuffleMode(true);
+        }
+        playAtPosition(index);
+    }
+
+    /** 当前不可变状态快照，新代码应优先订阅它而不是读取 Service 的可变字段。 */
+    public PlaybackState getPlaybackSnapshot() {
+        return playbackCoordinator.getState();
+    }
+
+    public void subscribePlaybackState(PlaybackCoordinator.StateSubscriber subscriber) {
+        playbackCoordinator.subscribe(subscriber);
+    }
+
+    public void unsubscribePlaybackState(PlaybackCoordinator.StateSubscriber subscriber) {
+        playbackCoordinator.unsubscribe(subscriber);
+    }
+
+    private void publishPlaybackState() {
+        if (destroyed) return;
+        playbackCoordinator.publish(buildPlaybackState());
+    }
+
+    // 队列快照只在播放列表引用变化时重建（setPlaylist 总是替换引用）。
+    private List<com.baidu.carplayer.model.Song> queueSnapshotSource;
+    private List<com.baidu.carplayer.model.Song> queueSnapshot = java.util.Collections.emptyList();
+
+    private PlaybackState buildPlaybackState() {
+        com.baidu.carplayer.model.Song song = getCurrentSong();
+        PlaybackState.Status status = PlaybackState.Status.IDLE;
+        boolean playWhenReady = false;
+        long position = 0L;
+        long duration = 0L;
+        int audioSessionId = 0;
+        if (exoPlayer != null) {
+            switch (exoPlayer.getPlaybackState()) {
+                case Player.STATE_BUFFERING:
+                    status = PlaybackState.Status.BUFFERING;
+                    break;
+                case Player.STATE_READY:
+                    status = PlaybackState.Status.READY;
+                    break;
+                case Player.STATE_ENDED:
+                    status = PlaybackState.Status.ENDED;
+                    break;
+                default:
+                    status = PlaybackState.Status.IDLE;
+            }
+            playWhenReady = exoPlayer.getPlayWhenReady();
+            position = Math.max(0L, exoPlayer.getCurrentPosition());
+            duration = Math.max(0L, exoPlayer.getDuration());
+            audioSessionId = exoPlayer.getAudioSessionId();
+        }
+        PlaybackCommand command = requestTracker.current();
+        if (command != null && status == PlaybackState.Status.IDLE) {
+            // 正在获取下载地址：显示缓冲，并反映该请求的 autoplay 意图。
+            status = PlaybackState.Status.BUFFERING;
+            playWhenReady = command.isPlayWhenReady();
+        } else if (command == null && loadFailed) {
+            // 失败状态持续到下一次成功加载，避免进度发布把错误“覆盖”成 IDLE。
+            status = PlaybackState.Status.ERROR;
+            playWhenReady = false;
+        }
+        List<com.baidu.carplayer.model.Song> songs = queue.getSongs();
+        if (queueSnapshotSource != songs) {
+            queueSnapshotSource = songs;
+            queueSnapshot = PlaybackState.snapshotQueue(songs);
+        }
+        return new PlaybackState(queueSnapshot, queue.getIndex(), song != null ? song.getId() : -1L,
+                status, playWhenReady, position, duration, queue.getMode().ordinal(), audioSessionId,
+                requestTracker.getGeneration()).withPlayerDetails(userVolume, currentAudioFormat());
+    }
+
+    private void notifyPlayerError(PlaybackException error) {
+        loadFailed = true;
+        if (!destroyed) {
+            playbackCoordinator.publish(buildPlaybackState().withError(error.getMessage()));
+        }
+    }
+
+
+    /** 用当前歌曲与播放状态刷新通知（同时同步 MediaSession）。 */
+    private void updateNotification() {
         updateMediaSessionState();
-        
-        NotificationManagerCompat manager = NotificationManagerCompat.from(this);
-        manager.notify(NOTIFICATION_ID, createNotification());
+        notifier.notify(mediaSession, queue.current(), isPlaying());
     }
     
     @Nullable
@@ -1087,8 +910,7 @@ public class AudioPlayerService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         // 系统方向盘/蓝牙媒体按键会通过 MEDIA_BUTTON Intent 投递给当前活动的 MediaSession。
         // 必须显式交给 MediaButtonReceiver，MediaSessionCompat 才会触发上面的回调。
-        if (intent != null && Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
-            MediaButtonReceiver.handleIntent(mediaSession, intent);
+        if (mediaSessionBridge != null && mediaSessionBridge.handleMediaButton(intent)) {
             return START_STICKY;
         }
 
@@ -1107,23 +929,19 @@ public class AudioPlayerService extends Service {
         Log.d(TAG, "处理媒体动作: " + action);
         switch (action) {
             case ACTION_PLAY:
-                play();
+                dispatch(PlaybackCommand.Type.PLAY);
                 break;
             case ACTION_PAUSE:
-                pause();
+                dispatch(PlaybackCommand.Type.PAUSE);
                 break;
             case ACTION_PLAY_PAUSE:
-                if (isPlaying()) {
-                    pause();
-                } else {
-                    play();
-                }
+                dispatch(PlaybackCommand.Type.TOGGLE);
                 break;
             case ACTION_NEXT:
-                playNext();
+                dispatch(PlaybackCommand.Type.NEXT);
                 break;
             case ACTION_PREVIOUS:
-                playPrevious();
+                dispatch(PlaybackCommand.Type.PREVIOUS);
                 break;
             default:
                 Log.w(TAG, "未知媒体动作: " + action);
@@ -1149,6 +967,15 @@ public class AudioPlayerService extends Service {
     
     @Override
     public void onDestroy() {
+        // 先使所有异步播放回调失效，再释放播放器。
+        destroyed = true;
+        requestTracker.close();
+        if (pendingUrlRequest != null) {
+            pendingUrlRequest.cancel();
+            pendingUrlRequest = null;
+        }
+        commandHandler.removeCallbacksAndMessages(null);
+        playbackCoordinator.close();
         super.onDestroy();
         stopProgressSave();
         savePlaybackState(); // 在服务销毁前保存状态
@@ -1157,104 +984,48 @@ public class AudioPlayerService extends Service {
             exoPlayer = null;
         }
         abandonAudioFocus();
-        if (mediaSession != null) {
-            mediaSession.setActive(false);
-            mediaSession.release();
+        if (mediaSessionBridge != null) {
+            mediaSessionBridge.release();
+            mediaSessionBridge = null;
+            mediaSession = null;
         }
     }
     
     /**
-     * 保存播放状态到 SharedPreferences
+     * 保存播放状态（委托给 PlaybackPersistence）
      */
-    public void savePlaybackState() {
-        if (playlist == null || playlist.isEmpty()) {
+    private void savePlaybackState() {
+        if (queue.isEmpty()) {
             return;
         }
-        
-        SharedPreferences.Editor editor = sharedPreferences.edit();
-        
-        // 保存播放列表（序列化为 JSON）
-        String playlistJson = gson.toJson(playlist);
-        editor.putString(KEY_PLAYLIST, playlistJson);
-        
-        // 保存当前播放位置（歌曲在列表中的索引）
-        editor.putInt(KEY_CURRENT_POSITION, currentPosition);
-        
-        // 保存当前播放进度（毫秒）
-        if (exoPlayer != null) {
-            editor.putLong(KEY_PLAYBACK_PROGRESS, exoPlayer.getCurrentPosition());
-        }
-        
-        // 保存播放模式
-        editor.putString(KEY_PLAY_MODE, playMode.name());
-        
-        // 保存播放状态（是否正在播放）
+        long progressMs = exoPlayer != null ? exoPlayer.getCurrentPosition() : 0;
         boolean isPlaying = exoPlayer != null && exoPlayer.getPlayWhenReady();
-        editor.putBoolean(KEY_IS_PLAYING, isPlaying);
-        
-        editor.apply();
-        Log.d(TAG, "播放状态已保存: position=" + currentPosition + ", mode=" + playMode + ", isPlaying=" + isPlaying);
+        persistence.save(queue.getSongs(), queue.getIndex(), progressMs, queue.getMode().name(), isPlaying);
+        Log.d(TAG, "播放状态已保存: position=" + queue.getIndex() + ", mode=" + queue.getMode());
     }
     
     /**
-     * 从 SharedPreferences 恢复播放状态
+     * 恢复播放状态（委托给 PlaybackPersistence）
      */
     private void restorePlaybackState() {
-        // 恢复播放列表
-        String playlistJson = sharedPreferences.getString(KEY_PLAYLIST, null);
-        if (playlistJson != null) {
-            Type listType = new TypeToken<ArrayList<com.baidu.carplayer.model.Song>>(){}.getType();
-            playlist = gson.fromJson(playlistJson, listType);
-            
-            // 恢复当前播放位置
-            currentPosition = sharedPreferences.getInt(KEY_CURRENT_POSITION, 0);
-            
-            // 恢复播放模式
-            String playModeName = sharedPreferences.getString(KEY_PLAY_MODE, PlayMode.ORDER.name());
-            try {
-                playMode = PlayMode.valueOf(playModeName);
-            } catch (IllegalArgumentException e) {
-                playMode = PlayMode.ORDER;
-            }
-            
-            // 如果恢复的是随机模式，重新生成洗牌序列
-            if (playMode == PlayMode.RANDOM) {
-                generateShuffleOrder();
-            }
-            
-            Log.d(TAG, "播放状态已恢复: playlist size=" + (playlist != null ? playlist.size() : 0)
-                    + ", position=" + currentPosition + ", mode=" + playMode);
-        } else {
+        List<com.baidu.carplayer.model.Song> saved = persistence.loadQueue();
+        if (saved == null) {
             Log.d(TAG, "没有保存的播放状态");
+            return;
         }
+        queue.setSongs(saved);
+        queue.moveTo(persistence.loadPosition());
+        queue.setMode(PlayMode.fromName(persistence.loadPlayModeName()));
+        // setMode(RANDOM) 已经重建了洗牌序列，这里不再重复生成。
+        Log.d(TAG, "播放状态已恢复: playlist size=" + queue.size()
+                + ", position=" + queue.getIndex() + ", mode=" + queue.getMode());
     }
     
-    /**
-     * 检查是否有保存的播放状态
-     */
-    public boolean hasSavedPlaybackState() {
-        return sharedPreferences.contains(KEY_PLAYLIST);
-    }
-    
-    /**
-     * 获取保存的播放列表
-     */
-    public List<com.baidu.carplayer.model.Song> getSavedPlaylist() {
-        return playlist;
-    }
-    
-    /**
-     * 获取保存的播放位置
-     */
-    public int getSavedPosition() {
-        return currentPosition;
-    }
-
     /**
      * 获取保存的播放进度（毫秒）
      */
-    public long getSavedProgress() {
-        return sharedPreferences.getLong(KEY_PLAYBACK_PROGRESS, 0);
+    private long getSavedProgress() {
+        return persistence.loadProgress();
     }
     
     /**
@@ -1271,29 +1042,10 @@ public class AudioPlayerService extends Service {
      * 当播放/暂停状态变化时调用，确保通知栏和系统UI反映最新状态
      */
     private void updateMediaSessionState() {
-        if (mediaSession == null) return;
-        
-        PlaybackStateCompat.Builder stateBuilder = new PlaybackStateCompat.Builder()
-                .setActions(
-                        PlaybackStateCompat.ACTION_PLAY |
-                        PlaybackStateCompat.ACTION_PAUSE |
-                        PlaybackStateCompat.ACTION_PLAY_PAUSE |
-                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
-                        PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
-                        PlaybackStateCompat.ACTION_STOP |
-                        PlaybackStateCompat.ACTION_SEEK_TO
-                );
-        
-        if (exoPlayer != null) {
-            int state = exoPlayer.getPlayWhenReady() 
-                    ? PlaybackStateCompat.STATE_PLAYING 
-                    : PlaybackStateCompat.STATE_PAUSED;
-            stateBuilder.setState(state, exoPlayer.getCurrentPosition(), 1.0f);
-        } else {
-            stateBuilder.setState(PlaybackStateCompat.STATE_STOPPED, 0, 1.0f);
-        }
-        
-        mediaSession.setPlaybackState(stateBuilder.build());
+        if (mediaSessionBridge == null) return;
+        mediaSessionBridge.update(exoPlayer != null,
+                exoPlayer != null && exoPlayer.getPlayWhenReady(),
+                exoPlayer != null ? exoPlayer.getCurrentPosition() : 0);
     }
     
     /**
@@ -1318,39 +1070,13 @@ public class AudioPlayerService extends Service {
         progressSaveHandler.removeCallbacks(progressSaveRunnable);
     }
     
-    /**
-     * 音频格式信息类
-     */
-    public static class AudioFormatInfo {
-        public String sampleMimeType;  // 编码格式
-        public int sampleRate;         // 采样率
-        public long bitrate;           // 比特率
-        public int channelCount;       // 声道数
-        
-        public AudioFormatInfo(String sampleMimeType, int sampleRate, long bitrate, int channelCount) {
-            this.sampleMimeType = sampleMimeType;
-            this.sampleRate = sampleRate;
-            this.bitrate = bitrate;
-            this.channelCount = channelCount;
-        }
-    }
-    
-    /**
-     * 获取当前播放的音频格式信息
-     * @return AudioFormatInfo 对象，如果无法获取则返回 null
-     */
+    /** 当前解码格式；只在播放器就绪后可用。 */
     @Nullable
-    public AudioFormatInfo getAudioFormatInfo() {
+    private AudioFormat currentAudioFormat() {
         if (exoPlayer == null || exoPlayer.getAudioFormat() == null) {
             return null;
         }
-        
         androidx.media3.common.Format format = exoPlayer.getAudioFormat();
-        return new AudioFormatInfo(
-            format.sampleMimeType,
-            format.sampleRate,
-            format.bitrate,
-            format.channelCount
-        );
+        return new AudioFormat(format.sampleMimeType, format.sampleRate, format.bitrate, format.channelCount);
     }
 }

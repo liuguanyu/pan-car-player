@@ -13,23 +13,19 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.adapter.FileAdapter;
-import com.baidu.carplayer.auth.BaiduAuthService;
+import com.baidu.carplayer.concurrent.AppExecutors;
 import com.baidu.carplayer.manager.PlaylistManager;
-import com.baidu.carplayer.model.AuthInfo;
 import com.baidu.carplayer.model.FileItem;
-import com.baidu.carplayer.model.FileListResponse;
 import com.baidu.carplayer.model.Song;
-import com.baidu.carplayer.network.BaiduPanService;
-import com.baidu.carplayer.network.RetrofitClient;
+import com.baidu.carplayer.network.LogRedactor;
+import com.baidu.carplayer.repository.CloudFileRepository;
+import com.baidu.carplayer.repository.CloudMusicScanner;
+import com.baidu.carplayer.repository.Repositories;
 import com.google.android.material.button.MaterialButton;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
-import retrofit2.Call;
-import retrofit2.Callback;
-import retrofit2.Response;
 
 /**
  * 文件浏览器Activity - 从百度网盘选择音频文件
@@ -56,13 +52,13 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
     private String currentPath = "/";
     private List<FileItem> currentFiles = new ArrayList<>();
     private PlaylistManager playlistManager;
-    private BaiduPanService baiduPanService;
-    private String accessToken;
+    private CloudFileRepository cloudFiles;
+    // 目录加载代次：只显示最新一次请求的结果。
+    private long loadGeneration;
     private boolean sortAscending = true; // 排序状态：true为正序，false为倒序
     
     // 用于递归扫描文件夹
-    private int pendingScans = 0;
-    private List<Song> songsToAdd = new ArrayList<>();
+    private boolean addInProgress = false;
     private android.app.ProgressDialog progressDialog;
 
     @Override
@@ -116,76 +112,44 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
 
     private void initData() {
         playlistManager = new PlaylistManager(this);
-        baiduPanService = RetrofitClient.getInstance().create(BaiduPanService.class);
-
-        // 获取访问令牌
-        AuthInfo authInfo = BaiduAuthService.getInstance(this).getAuthInfo();
-        if (authInfo != null) {
-            accessToken = authInfo.getAccessToken();
-        } else {
+        cloudFiles = Repositories.cloudFiles(this);
+        if (!cloudFiles.hasToken()) {
             Toast.makeText(this, "未登录，请先登录", Toast.LENGTH_SHORT).show();
             finish();
         }
     }
 
     private void loadFiles() {
-        if (accessToken == null) {
+        if (!cloudFiles.hasToken()) {
             return;
         }
 
         showLoading();
-
-        Call<FileListResponse> call = baiduPanService.getFileList(
-                "list",
-                accessToken,
-                currentPath,
-                "name",
-                0,   // desc=0：正序排列，确保每次请求返回顺序一致
-                0,
-                1000,
-                1,
-                0,
-                0
-        );
-
-        call.enqueue(new Callback<FileListResponse>() {
-            @Override
-            public void onResponse(Call<FileListResponse> call, Response<FileListResponse> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    parseFileList(response.body());
-                } else {
-                    runOnUiThread(() -> {
-                        hideLoading();
-                        Toast.makeText(FileBrowserActivity.this, "加载文件列表失败", Toast.LENGTH_SHORT).show();
-                    });
-                }
-            }
-
-            @Override
-            public void onFailure(Call<FileListResponse> call, Throwable t) {
+        final String path = currentPath;
+        final long generation = ++loadGeneration;
+        AppExecutors.getInstance().networkIO().execute(() -> {
+            try {
+                List<FileItem> items = cloudFiles.listFolder(path);
+                showFileList(generation, items);
+            } catch (CloudMusicScanner.ScanException e) {
                 runOnUiThread(() -> {
+                    if (generation != loadGeneration || isFinishing()) return;
                     hideLoading();
-                    Toast.makeText(FileBrowserActivity.this, "网络错误: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(FileBrowserActivity.this,
+                            "加载文件列表失败: " + LogRedactor.redact(e.getMessage()), Toast.LENGTH_SHORT).show();
                 });
             }
         });
     }
 
-    private void parseFileList(FileListResponse response) {
+    /** 在后台线程排序；只有最新一次目录加载的结果会被显示，避免快速切目录时旧结果覆盖。 */
+    private void showFileList(long generation, List<FileItem> list) {
         List<FileItem> files = new ArrayList<>();
-
-        try {
-            List<FileItem> list = response.getList();
-            if (list != null) {
-                for (FileItem fileItem : list) {
-                    // 只显示目录和音频文件
-                    if (fileItem.getIsdir() == 1 || fileItem.isAudioFile()) {
-                        files.add(fileItem);
-                    }
-                }
+        for (FileItem fileItem : list) {
+            // 只显示目录和音频文件
+            if (fileItem.getIsdir() == 1 || fileItem.isAudioFile()) {
+                files.add(fileItem);
             }
-        } catch (Exception e) {
-            e.printStackTrace();
         }
 
         // 在 setFiles 之前先排序，避免 UI 先显示未排序列表再闪烁为排序后的视觉效果
@@ -212,9 +176,9 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
             return sortAscending ? result : -result;
         });
 
-        currentFiles = files;
-
         runOnUiThread(() -> {
+            if (generation != loadGeneration || isFinishing()) return;
+            currentFiles = files;
             hideLoading();
             currentPathText.setText(currentPath);
             // 数据已排序完毕，适配器直接展示，不再二次排序
@@ -280,110 +244,61 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
             Toast.makeText(this, "请先选择文件", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (addInProgress) {
+            return;
+        }
+        addInProgress = true;
 
-        songsToAdd.clear();
-        pendingScans = 0;
-        
         // 显示进度对话框
         progressDialog = new android.app.ProgressDialog(this);
-        progressDialog.setMessage("正在处理中...");
+        progressDialog.setMessage("正在扫描网盘文件...");
         progressDialog.setCancelable(false);
         progressDialog.show();
 
-        // 处理选中的文件和文件夹
-        for (FileItem fileItem : selectedFiles) {
-            if (fileItem.getIsdir() == 1) {
-                // 文件夹，递归扫描
-                scanFolder(fileItem.getPath());
-            } else if (fileItem.isAudioFile()) {
-                // 音频文件，直接添加
-                addFileToList(fileItem);
+        final List<FileItem> selection = new ArrayList<>(selectedFiles);
+        // 扫描完整成功后才写库；任一目录失败都不写入，避免出现残缺列表。
+        AppExecutors.getInstance().networkIO().execute(() -> {
+            List<FileItem> audioFiles;
+            try {
+                audioFiles = cloudFiles.scanSelection(selection);
+            } catch (CloudMusicScanner.ScanException e) {
+                onAddFinished("添加失败: " + LogRedactor.redact(e.getMessage()), false);
+                return;
             }
-        }
-        
-        // 如果没有异步任务，直接完成
-        if (pendingScans == 0) {
-            finishAddingFiles();
-        }
-    }
-    
-    private void addFileToList(FileItem fileItem) {
-        Song song = new Song();
-        song.setPlaylistId(playlistId);
-        song.setFsId(fileItem.getFsId());
-        song.setTitle(fileItem.getServerFilename());
-        song.setPath(fileItem.getPath());
-        song.setSize(fileItem.getSize());
-        song.setAddedTime(System.currentTimeMillis());
-        songsToAdd.add(song);
-    }
-    
-    private void scanFolder(String path) {
-        pendingScans++;
-        if (progressDialog != null) {
-            progressDialog.setMessage("正在扫描: " + path);
-        }
-        
-        Call<FileListResponse> call = baiduPanService.getFileList(
-                "list",
-                accessToken,
-                path,
-                "name",
-                0,    // desc=0：正序
-                0,
-                1000,
-                1,    // web=1，返回完整的文件信息
-                0,
-                0
-        );
-
-        call.enqueue(new Callback<FileListResponse>() {
-            @Override
-            public void onResponse(Call<FileListResponse> call, Response<FileListResponse> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    List<FileItem> list = response.body().getList();
-                    if (list != null) {
-                        for (FileItem item : list) {
-                            if (item.getIsdir() == 1) {
-                                // 递归扫描子文件夹
-                                scanFolder(item.getPath());
-                            } else if (item.isAudioFile()) {
-                                addFileToList(item);
-                            }
+            if (audioFiles.isEmpty()) {
+                onAddFinished("未找到可添加的音频文件", false);
+                return;
+            }
+            playlistManager.addSongsToPlaylist(playlistId, toSortedSongs(audioFiles),
+                    new PlaylistManager.OnResultListener() {
+                        @Override
+                        public void onSuccess(Object result) {
+                            int added = (Integer) result;
+                            int skipped = audioFiles.size() - added;
+                            String message = "已添加 " + added + " 首歌曲"
+                                    + (skipped > 0 ? "，" + skipped + " 首已在列表中" : "");
+                            onAddFinished(message, true);
                         }
-                    }
-                }
-                checkScanCompletion();
-            }
 
-            @Override
-            public void onFailure(Call<FileListResponse> call, Throwable t) {
-                checkScanCompletion();
-            }
+                        @Override
+                        public void onError(String error) {
+                            onAddFinished("添加失败: " + error, false);
+                        }
+                    });
         });
     }
-    
-    private synchronized void checkScanCompletion() {
-        pendingScans--;
-        if (pendingScans <= 0) {
-            runOnUiThread(this::finishAddingFiles);
+
+    /** 按名称排序，保证添加顺序稳定。 */
+    private List<Song> toSortedSongs(List<FileItem> files) {
+        List<Song> songs = new ArrayList<>(files.size());
+        for (FileItem item : files) {
+            Song song = new Song(item.getFsId(), playlistId, item.getServerFilename(), item.getPath(),
+                    item.getSize(), 0L);
+            songs.add(song);
         }
-    }
-    
-    private void finishAddingFiles() {
-        if (progressDialog != null && progressDialog.isShowing()) {
-            progressDialog.dismiss();
-        }
-        
-        if (songsToAdd.isEmpty()) {
-            Toast.makeText(this, "未找到可添加的音频文件", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        
-        // 对收集到的歌曲按名称排序，保证添加顺序稳定
         java.text.Collator collator = java.text.Collator.getInstance(java.util.Locale.CHINESE);
         collator.setStrength(java.text.Collator.PRIMARY);
-        songsToAdd.sort((s1, s2) -> {
+        songs.sort((s1, s2) -> {
             int result = collator.compare(s1.getTitle(), s2.getTitle());
             if (result == 0) {
                 result = s1.getTitle().compareTo(s2.getTitle());
@@ -393,25 +308,23 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
             }
             return result;
         });
-        
-        // 批量添加到数据库
-        int total = songsToAdd.size();
-        for (Song song : songsToAdd) {
-            playlistManager.addSongToPlaylist(playlistId, song, new PlaylistManager.OnResultListener() {
-                @Override
-                public void onSuccess(Object result) {
-                    // ignore
-                }
+        return songs;
+    }
 
-                @Override
-                public void onError(String error) {
-                    // ignore
-                }
-            });
-        }
-
-        Toast.makeText(this, "已添加 " + total + " 个音频文件", Toast.LENGTH_SHORT).show();
-        finish();
+    private void onAddFinished(String message, boolean success) {
+        runOnUiThread(() -> {
+            addInProgress = false;
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            if (progressDialog != null && progressDialog.isShowing()) {
+                progressDialog.dismiss();
+            }
+            Toast.makeText(this, message, success ? Toast.LENGTH_SHORT : Toast.LENGTH_LONG).show();
+            if (success) {
+                finish();
+            }
+        });
     }
 
     private void updateSelectionInfo() {

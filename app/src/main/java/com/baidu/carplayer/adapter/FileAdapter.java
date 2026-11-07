@@ -11,14 +11,14 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.R;
+import com.baidu.carplayer.adapter.rows.FileRow;
 import com.baidu.carplayer.model.FileItem;
+import com.baidu.carplayer.selection.SelectionModel;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 文件列表适配器
@@ -26,7 +26,12 @@ import java.util.Map;
 public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder> {
 
     private List<FileItem> files = new ArrayList<>();
-    private Map<Long, Boolean> selectedFiles = new HashMap<>();
+    // 选择状态与列表位置无关，按 fsId 记录；Adapter 只渲染。
+    private final SelectionModel<FileItem> selection = new SelectionModel<>(FileItem::getFsId);
+    private static final SelectionModel.Filter<FileItem> SELECTABLE =
+            file -> file.getIsdir() == 1 || file.isAudioFile();
+    private static final SelectionModel.Filter<FileItem> FILES = file -> file.getIsdir() == 0;
+    private static final SelectionModel.Filter<FileItem> FOLDERS = file -> file.getIsdir() == 1;
     private OnFileClickListener listener;
 
     public interface OnFileClickListener {
@@ -34,12 +39,28 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
         void onFileCheckChanged(FileItem file, boolean isChecked);
     }
 
+    public FileAdapter() {
+        setHasStableIds(true);
+    }
+
+    @Override
+    public long getItemId(int position) {
+        return files.get(position).getFsId();
+    }
+
+    /** 当前位置的不可变行模型。 */
+    public FileRow rowAt(int position) {
+        FileItem file = files.get(position);
+        return FileRow.of(file, selection.isSelected(file));
+    }
+
     public void setOnFileClickListener(OnFileClickListener listener) {
         this.listener = listener;
     }
 
     public void setFiles(List<FileItem> files) {
-        this.files = files;
+        this.files = files != null ? new ArrayList<>(files) : new ArrayList<>();
+        selection.setItems(this.files);
         notifyDataSetChanged();
     }
 
@@ -53,8 +74,7 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
 
     @Override
     public void onBindViewHolder(@NonNull FileViewHolder holder, int position) {
-        FileItem file = files.get(position);
-        holder.bind(file);
+        holder.bind(rowAt(position), position);
     }
 
     @Override
@@ -63,60 +83,34 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
     }
 
     public void selectAllAudioFiles(boolean select) {
-        for (FileItem file : files) {
-            // 选择所有文件夹和音频文件
-            if (file.getIsdir() == 1 || file.isAudioFile()) {
-                selectedFiles.put(file.getFsId(), select);
-            }
+        // 选择所有文件夹和音频文件
+        if (select) {
+            selection.selectAll(SELECTABLE);
+        } else {
+            selection.deselectAll(SELECTABLE);
         }
         notifyDataSetChanged();
     }
 
     public boolean areAllAudioFilesSelected() {
-        for (FileItem file : files) {
-            // 检查所有文件夹和音频文件是否都被选中
-            if (file.getIsdir() == 1 || file.isAudioFile()) {
-                if (!selectedFiles.containsKey(file.getFsId()) || !selectedFiles.get(file.getFsId())) {
-                    return false;
-                }
-            }
-        }
-        return true;
+        return selection.areAllSelected(SELECTABLE);
     }
 
     public void clearSelection() {
-        selectedFiles.clear();
+        selection.clear();
         notifyDataSetChanged();
     }
 
     public List<FileItem> getSelectedFiles() {
-        List<FileItem> selected = new ArrayList<>();
-        for (FileItem file : files) {
-            if (selectedFiles.containsKey(file.getFsId()) && selectedFiles.get(file.getFsId())) {
-                selected.add(file);
-            }
-        }
-        return selected;
+        return selection.getSelectedItems();
     }
 
     public int getSelectedFileCount() {
-        int count = 0;
-        for (FileItem file : files) {
-            if (file.getIsdir() == 0 && selectedFiles.containsKey(file.getFsId()) && selectedFiles.get(file.getFsId())) {
-                count++;
-            }
-        }
-        return count;
+        return selection.count(FILES);
     }
     
     public int getSelectedFolderCount() {
-        int count = 0;
-        for (FileItem file : files) {
-            if (file.getIsdir() == 1 && selectedFiles.containsKey(file.getFsId()) && selectedFiles.get(file.getFsId())) {
-                count++;
-            }
-        }
-        return count;
+        return selection.count(FOLDERS);
     }
 
     /**
@@ -149,6 +143,7 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
                 return ascending ? result : -result;
             }
         });
+        selection.setItems(files);
         notifyDataSetChanged();
     }
 
@@ -171,11 +166,9 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
                 int position = getAdapterPosition();
                 if (position != RecyclerView.NO_POSITION && listener != null) {
                     FileItem file = files.get(position);
-                    if (file.getIsdir() == 1) {
-                        // 文件夹点击进入
+                    if (rowAt(position).clickAction() == FileRow.Action.OPEN) {
                         listener.onFileClick(file);
                     } else {
-                        // 文件点击切换选中状态
                         toggleSelection(file);
                     }
                 }
@@ -185,8 +178,7 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
                 int position = getAdapterPosition();
                 if (position != RecyclerView.NO_POSITION && listener != null) {
                     FileItem file = files.get(position);
-                    if (file.getIsdir() == 1) {
-                        // 文件夹长按切换选中状态
+                    if (rowAt(position).longClickAction() == FileRow.Action.TOGGLE) {
                         toggleSelection(file);
                         return true;
                     }
@@ -196,69 +188,45 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
         }
         
         private void toggleSelection(FileItem file) {
-            boolean isSelected = selectedFiles.containsKey(file.getFsId()) && selectedFiles.get(file.getFsId());
-            boolean newStatus = !isSelected;
-            selectedFiles.put(file.getFsId(), newStatus);
-            notifyItemChanged(getAdapterPosition());
+            selection.toggle(file);
+            boolean newStatus = selection.isSelected(file);
+            int adapterPosition = getAdapterPosition();
+            if (adapterPosition != RecyclerView.NO_POSITION) {
+                notifyItemChanged(adapterPosition);
+            }
             if (listener != null) {
                 listener.onFileCheckChanged(file, newStatus);
             }
         }
 
-        public void bind(FileItem file) {
-            fileName.setText(file.getServerFilename());
+        public void bind(FileRow row, int position) {
+            fileName.setText(row.name);
             
             // 设置斑马纹背景
-            int position = getAdapterPosition();
-            if (position % 2 == 0) {
-                itemView.setBackgroundColor(0xFF1E1E1E); // 深色
-            } else {
-                itemView.setBackgroundColor(0xFF2A2A2A); // 稍浅色
-            }
+            itemView.setBackgroundColor(position % 2 == 0 ? 0xFF1E1E1E : 0xFF2A2A2A);
             
-            boolean isSelected = selectedFiles.containsKey(file.getFsId()) && selectedFiles.get(file.getFsId());
-            
-            // 设置选中状态图标
-            if (isSelected) {
-                selectedIcon.setVisibility(View.VISIBLE);
-            } else {
-                selectedIcon.setVisibility(View.GONE);
-            }
+            selectedIcon.setVisibility(row.selected ? View.VISIBLE : View.GONE);
 
-            // 设置图标
-            if (file.getIsdir() == 1) {
-                // 目录图标 - 使用黄色文件夹
-                fileIcon.setImageResource(R.drawable.ic_folder_yellow);
-                // 文件夹不显示大小信息
+            switch (row.kind) {
+                case FOLDER:
+                    fileIcon.setImageResource(R.drawable.ic_folder_yellow);
+                    break;
+                case AUDIO:
+                    fileIcon.setImageResource(android.R.drawable.ic_lock_silent_mode_off);
+                    break;
+                default:
+                    fileIcon.setImageResource(android.R.drawable.ic_menu_agenda);
+                    break;
+            }
+            if (row.sizeText == null) {
                 fileSize.setVisibility(View.GONE);
-            } else if (file.isAudioFile()) {
-                // 音频文件图标
-                fileIcon.setImageResource(android.R.drawable.ic_lock_silent_mode_off);
-                // 显示文件大小
-                fileSize.setVisibility(View.VISIBLE);
-                fileSize.setText(formatFileSize(file.getSize()));
             } else {
-                // 其他文件图标
-                fileIcon.setImageResource(android.R.drawable.ic_menu_agenda);
-                // 显示文件大小
                 fileSize.setVisibility(View.VISIBLE);
-                fileSize.setText(formatFileSize(file.getSize()));
+                fileSize.setText(row.sizeText);
             }
             
             // 不再使用CheckBox，逻辑已移至点击事件和selectedIcon
             fileCheckbox.setVisibility(View.GONE);
-        }
-
-        private String formatFileSize(long size) {
-            if (size < 1024) {
-                return size + " B";
-            } else if (size < 1024 * 1024) {
-                return String.format("%.1f KB", size / 1024.0);
-            } else if (size < 1024 * 1024 * 1024) {
-                return String.format("%.1f MB", size / (1024.0 * 1024));
-            } else {
-                return String.format("%.1f GB", size / (1024.0 * 1024 * 1024));
-            }
         }
     }
 }

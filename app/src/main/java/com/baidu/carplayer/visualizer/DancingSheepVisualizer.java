@@ -12,6 +12,9 @@ public final class DancingSheepVisualizer implements AudioVisualizer {
     private final Random random = new Random();
     private int width, height, capFrames, capCooldown = 240, hopCooldown;
     private float bass, mid, treble, volume, beatPulse, sheepPulse, legPhase;
+    /** 动作幅度：有音频时趋向 1，暂停/停止时平滑衰减到 0，羊随之站定。 */
+    private float activity;
+    private static final float REST = .01f;
     private float bodyBob, bodySway, bodyTilt, bodyStretch, headNod, headSwing, tongue, eyeWide, eyelid;
     private final float[] lamp = new float[4];
     // x ratio, y ratio, horizontal radius, vertical radius, speed, phase
@@ -25,14 +28,20 @@ public final class DancingSheepVisualizer implements AudioVisualizer {
     @Override public void update(byte[] fft, int width, int height) {
         this.width = width; this.height = height;
         AudioAnalyzer.Analysis a = analyzer.analyze(fft);
-        bass = a.bass; mid = a.mid; treble = a.treble; volume = a.volume;
         float dt = 1f / 60;
+        boolean hasAudio = fft != null && fft.length > 0;
+        activity += ((hasAudio ? 1f : 0f) - activity) * dt * (hasAudio ? 6 : 3);
+        if (!hasAudio && activity < REST) activity = 0;
+        // 无数据时各频段也平滑回落，不做跳变。
+        float k = hasAudio ? 1f : dt * 6;
+        bass += (a.bass - bass) * k; mid += (a.mid - mid) * k;
+        treble += (a.treble - treble) * k; volume += (a.volume - volume) * k;
         beatPulse += (bass - beatPulse) * dt * 8;
         sheepPulse += (volume - sheepPulse) * dt * 5;
-        legPhase += dt * (2.8f + bass * 1.4f + volume * .9f) * (float) Math.PI * 2;
+        legPhase += dt * (2.8f + bass * 1.4f + volume * .9f) * (float) Math.PI * 2 * activity;
         tongue += ((bass > .4f ? bass : 0) - tongue) * dt * 12;
-        float groove = sin(legPhase), side = sin(legPhase * .5f), jump = Math.max(0, groove);
-        float landing = Math.max(0, -groove), step = cos(legPhase);
+        float groove = sin(legPhase) * activity, side = sin(legPhase * .5f) * activity, jump = Math.max(0, groove);
+        float landing = Math.max(0, -groove), step = cos(legPhase) * activity;
         bodySway += (side * (5 + treble * 5) + step * bass * 4 - bodySway) * dt * 9;
         bodyTilt += (side * .045f + step * bass * .035f - bodyTilt) * dt * 8;
         bodyBob += (groove * 2.2f + jump * (5 + bass * 10) - landing * bass * 3.5f + volume * 2 - bodyBob) * dt * 11;
@@ -47,7 +56,7 @@ public final class DancingSheepVisualizer implements AudioVisualizer {
         float[] targets = {Math.max(bass, beatPulse), mid, treble, Math.max(volume, sheepPulse)};
         for (int i = 0; i < lamp.length; i++) lamp[i] += (targets[i] - lamp[i]) * (targets[i] > lamp[i] ? .45f : .16f);
         for (float[] c : clouds) {
-            c[5] += dt * (.4f + volume); c[0] += c[4] * dt * (.6f + volume * .8f);
+            c[5] += dt * (.4f + volume) * activity; c[0] += c[4] * dt * (.6f + volume * .8f) * activity;
             if (width > 0 && c[0] * width - c[2] > width) c[0] = -c[2] / width;
         }
         if (hopCooldown > 0) hopCooldown--;
@@ -55,16 +64,25 @@ public final class DancingSheepVisualizer implements AudioVisualizer {
             for (int i = 0; i < far.length; i++) far[i][4] = 300 + i * 40;
             hopCooldown = 240;
         }
-        for (float[] f : far) { f[3] += dt * (1.5f + bass * 2 + volume); f[4] = Math.max(0, f[4] - dt * 1000); }
+        for (float[] f : far) { f[3] += dt * (1.5f + bass * 2 + volume) * activity; f[4] = Math.max(0, f[4] - dt * 1000); }
+    }
+    @Override public boolean isAtRest() {
+        if (activity > 0) return false;
+        float motion = Math.abs(bodyBob) + Math.abs(bodySway) + Math.abs(bodyTilt) + Math.abs(bodyStretch)
+                + Math.abs(headNod) + Math.abs(headSwing) + tongue + beatPulse + sheepPulse;
+        for (float l : lamp) motion += l;
+        return motion < REST;
     }
     private void oval(Canvas c, float x, float y, float rx, float ry, int color) {
         paint.setColor(color); c.drawOval(x-rx,y-ry,x+rx,y+ry,paint);
     }
     @Override public void draw(Canvas canvas) {
         if (width <= 0 || height <= 0) return;
-        // Scale the entire source scene consistently so sheep remain legible on different car displays.
-        int save = canvas.save(); canvas.scale(width / 640f, height / 360f);
-        float w = 640, h = 360;
+        // 等比缩放：按高度适配，宽度方向扩展天空/草地/篱笆，羊和飞艇不被拉伸压扁。
+        // 很窄的区域按宽度适配并垂直居中，保证整只羊可见。
+        float scale = Math.min(height / 360f, width / 360f);
+        float w = width / scale, h = height / scale;
+        int save = canvas.save(); canvas.scale(scale, scale);
         paint.setShader(new LinearGradient(0,0,0,h*.65f,0xff9aa4ff,0xff001dff,Shader.TileMode.CLAMP));
         canvas.drawRect(0,0,w,h*.65f,paint); paint.setShader(null);
         oval(canvas,w*.85f,h*.12f,50,50,0x80fff36b); oval(canvas,w*.85f,h*.12f,30,30,0xfffff36b);
@@ -87,11 +105,11 @@ public final class DancingSheepVisualizer implements AudioVisualizer {
             canvas.drawLine(x+s/4,y+s/2,x+s/4,y+s-Math.max(0,-lift),paint);
         }
         drawAirship(canvas,w*.75f,h*.15f);
-        float cx=w*.44f+bodySway, cy=h*.57f+bodyBob;
+        float cx=w/2f-w*.06f*Math.min(1f,640f/w)+bodySway, cy=h*.57f+bodyBob;
         for (int i=0;i<3;i++) oval(canvas,cx+w*.03f,h*.74f,90-i,32-i,Color.argb((int)((.55f+sheepPulse*.37f)*(1-i*.3f)*255),255,250,205));
         canvas.save(); canvas.rotate(bodyTilt*57.29578f,cx,cy);
-        float step=sin(legPhase), lift=step*(2+bass*5)+Math.max(0,step)*2;
-        float stride=sin(legPhase*.5f)*(2+treble*3);
+        float step=sin(legPhase)*activity, lift=step*(2+bass*5)+Math.max(0,step)*2;
+        float stride=sin(legPhase*.5f)*(2+treble*3)*activity;
         paint.setColor(Color.BLACK); paint.setStrokeWidth(4); paint.setStrokeCap(Paint.Cap.ROUND);
         leg(canvas,cx-18+stride,cy+20,lift); leg(canvas,cx-4-stride*.4f,cy+20,-lift);
         leg(canvas,cx+18+stride*.25f,cy+22,-lift*.6f); leg(canvas,cx+34-stride,cy+22,lift*.6f);
@@ -134,6 +152,7 @@ public final class DancingSheepVisualizer implements AudioVisualizer {
     @Override public void reset() {
         bass=mid=treble=volume=beatPulse=sheepPulse=legPhase=0;
         bodyBob=bodySway=bodyTilt=bodyStretch=headNod=headSwing=tongue=eyeWide=eyelid=0;
+        activity=0;
         capFrames=hopCooldown=0; capCooldown=240; Arrays.fill(lamp,0); analyzer.reset();
         for(float[] f:far) f[4]=0;
     }

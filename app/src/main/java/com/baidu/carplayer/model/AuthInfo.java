@@ -19,6 +19,24 @@ public class AuthInfo {
         this.isLoggedIn = false;
     }
 
+    /** 创建防御性副本，避免调用方直接修改认证服务内部状态。 */
+    public AuthInfo(AuthInfo source) {
+        if (source == null) {
+            this.isLoggedIn = false;
+            return;
+        }
+        this.accessToken = source.accessToken;
+        this.refreshToken = source.refreshToken;
+        this.expiresAt = source.expiresAt;
+        this.scope = source.scope;
+        this.sessionSecret = source.sessionSecret;
+        this.sessionKey = source.sessionKey;
+        this.sessionExpiresAt = source.sessionExpiresAt;
+        this.userId = source.userId;
+        this.username = source.username;
+        this.isLoggedIn = source.isLoggedIn;
+    }
+
     public String getAccessToken() {
         return accessToken;
     }

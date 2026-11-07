@@ -12,6 +12,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.R;
+import com.baidu.carplayer.adapter.rows.SongRow;
 import com.baidu.carplayer.model.Song;
 
 import java.util.ArrayList;
@@ -29,7 +30,21 @@ public class CurrentPlaylistAdapter extends RecyclerView.Adapter<CurrentPlaylist
     private long currentPlayingSongId = -1;
 
     public interface OnSongClickListener {
-        void onSongClick(Song song, int position);
+        void onSongClick(long songId);
+    }
+
+    public CurrentPlaylistAdapter() {
+        setHasStableIds(true);
+    }
+
+    @Override
+    public long getItemId(int position) {
+        return filteredSongs.get(position).getFsId();
+    }
+
+    /** 当前位置的不可变行模型。 */
+    public SongRow rowAt(int position) {
+        return SongRow.forQueue(filteredSongs.get(position), currentPlayingSongId);
     }
 
     public void setOnSongClickListener(OnSongClickListener listener) {
@@ -49,16 +64,6 @@ public class CurrentPlaylistAdapter extends RecyclerView.Adapter<CurrentPlaylist
         return null;
     }
     
-    // 获取歌曲在原始列表中的位置
-    public int getOriginalPosition(Song song) {
-        for (int i = 0; i < originalSongs.size(); i++) {
-            if (originalSongs.get(i).getId() == song.getId()) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
     public void setCurrentPlayingSongId(long songId) {
         if (this.currentPlayingSongId != songId) {
             long oldId = this.currentPlayingSongId;
@@ -85,8 +90,8 @@ public class CurrentPlaylistAdapter extends RecyclerView.Adapter<CurrentPlaylist
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        Song song = filteredSongs.get(position);
-        holder.bind(song);
+        SongRow row = rowAt(position);
+        holder.bind(row);
         
         // 设置斑马纹背景
         int backgroundColor = (position % 2 == 0)
@@ -94,7 +99,7 @@ public class CurrentPlaylistAdapter extends RecyclerView.Adapter<CurrentPlaylist
             : holder.itemView.getContext().getResources().getColor(R.color.list_item_background_alt, null);
         
         // 高亮当前播放歌曲
-        if (song.getId() == currentPlayingSongId) {
+        if (row.playing) {
              backgroundColor = holder.itemView.getContext().getResources().getColor(R.color.car_surface_highlight, null);
         }
         
@@ -106,28 +111,35 @@ public class CurrentPlaylistAdapter extends RecyclerView.Adapter<CurrentPlaylist
         return filteredSongs.size();
     }
 
+    /**
+     * 纯函数：按标题或歌手过滤（忽略大小写和首尾空白）。
+     * 点击回调使用歌曲 ID，因此过滤后的位置不会影响播放哪一首。
+     */
+    public static List<Song> filterSongs(List<Song> source, CharSequence constraint) {
+        String pattern = constraint == null ? "" : constraint.toString().toLowerCase().trim();
+        if (pattern.isEmpty()) {
+            return new ArrayList<>(source);
+        }
+        List<Song> result = new ArrayList<>();
+        for (Song song : source) {
+            String title = song.getTitle();
+            // "<unknown>" 是百度接口的未知歌手占位符，不作为可搜索内容。
+            String artist = song.getArtist();
+            boolean hasArtist = artist != null && !artist.isEmpty() && !artist.equals("<unknown>");
+            if ((title != null && title.toLowerCase().contains(pattern))
+                    || (hasArtist && artist.toLowerCase().contains(pattern))) {
+                result.add(song);
+            }
+        }
+        return result;
+    }
+
     @Override
     public Filter getFilter() {
         return new Filter() {
             @Override
             protected FilterResults performFiltering(CharSequence constraint) {
-                String charString = constraint.toString();
-                List<Song> resultList;
-                
-                if (charString.isEmpty()) {
-                    resultList = originalSongs;
-                } else {
-                    List<Song> filteredList = new ArrayList<>();
-                    String filterPattern = charString.toLowerCase().trim();
-                    
-                    for (Song song : originalSongs) {
-                        if (song.getTitle().toLowerCase().contains(filterPattern) || 
-                            (song.getArtist() != null && song.getArtist().toLowerCase().contains(filterPattern))) {
-                            filteredList.add(song);
-                        }
-                    }
-                    resultList = filteredList;
-                }
+                List<Song> resultList = filterSongs(originalSongs, constraint);
 
                 FilterResults filterResults = new FilterResults();
                 filterResults.values = resultList;
@@ -137,7 +149,9 @@ public class CurrentPlaylistAdapter extends RecyclerView.Adapter<CurrentPlaylist
 
             @Override
             protected void publishResults(CharSequence constraint, FilterResults results) {
-                filteredSongs = (ArrayList<Song>) results.values;
+                filteredSongs = results.values == null
+                        ? new ArrayList<>()
+                        : new ArrayList<>((List<Song>) results.values);
                 notifyDataSetChanged();
             }
         };
@@ -160,26 +174,21 @@ public class CurrentPlaylistAdapter extends RecyclerView.Adapter<CurrentPlaylist
             itemView.setOnClickListener(v -> {
                 int position = getAdapterPosition();
                 if (listener != null && position != RecyclerView.NO_POSITION) {
-                    listener.onSongClick(filteredSongs.get(position), position);
+                    listener.onSongClick(filteredSongs.get(position).getId());
                 }
             });
         }
 
-        public void bind(Song song) {
-            // 设置歌曲标题
-            String displayText = song.getTitle();
-            if (song.getArtist() != null && !song.getArtist().isEmpty() && !song.getArtist().equals("<unknown>")) {
-                displayText += " - " + song.getArtist();
-            }
-            songTitle.setText(displayText);
+        public void bind(SongRow row) {
+            songTitle.setText(row.title);
             
             // 设置歌曲路径
             if (songPath != null) {
-                songPath.setText(song.getPath());
+                songPath.setText(row.subtitle);
             }
             
             // 显示播放状态
-            if (song.getId() == currentPlayingSongId) {
+            if (row.playing) {
                 songTitle.setTextColor(itemView.getContext().getColor(R.color.car_accent));
                 songTitle.setTextScaleX(1.05f);
                 if (songPath != null) {

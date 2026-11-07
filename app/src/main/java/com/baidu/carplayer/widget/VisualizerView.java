@@ -19,7 +19,8 @@ public final class VisualizerView extends View {
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (manager != null) manager.draw(canvas, getWidth(), getHeight());
-        if (active && isShown()) postInvalidateOnAnimation();
+        // 播放中持续绘制；停止后继续绘制到效果回落为 0 态，然后停帧。
+        if (isShown() && (active || (manager != null && manager.isSettling()))) postInvalidateOnAnimation();
     }
     @Override protected void onDetachedFromWindow() {
         active = false;

@@ -17,14 +17,15 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.adapter.SongAdapter;
-import com.baidu.carplayer.auth.BaiduAuthService;
 import com.baidu.carplayer.manager.PlaylistManager;
-import com.baidu.carplayer.model.AuthInfo;
+import com.baidu.carplayer.ui.LoadGate;
 import com.baidu.carplayer.model.Song;
-import com.baidu.carplayer.network.BaiduPanService;
-import com.baidu.carplayer.network.RetrofitClient;
+import com.baidu.carplayer.repository.CloudFileRepository;
+import com.baidu.carplayer.repository.Repositories;
+import com.baidu.carplayer.playback.MediaKeyDispatcher;
+import com.baidu.carplayer.playback.PlaybackCoordinator;
+import com.baidu.carplayer.playback.PlaybackState;
 import com.baidu.carplayer.service.AudioPlayerService;
-import androidx.media3.common.PlaybackException;
 
 import java.security.SecureRandom;
 import java.util.List;
@@ -62,11 +63,23 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
     private List<Song> currentSongs;
     private boolean sortAscending = true; // 排序状态：true为正序，false为倒序
     
-    private BaiduPanService baiduPanService;
-    private String accessToken;
+    private CloudFileRepository cloudFiles;
 
     private AudioPlayerService audioPlayerService;
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    // “正在播放”按钮只由 Service 发布的播放状态驱动。
+    private final PlaybackCoordinator.StateSubscriber playbackStateSubscriber = state -> {
+        boolean playing = state.getStatus() == PlaybackState.Status.READY && state.isPlayWhenReady();
+        mainHandler.post(() -> {
+            lastKnownPlaying = playing;
+            renderNowPlaying();
+        });
+    };
+    private boolean lastKnownPlaying = false;
     private boolean serviceBound = false;
+    private boolean viewsInitialized = false;
+    // 只允许一次在途加载，避免 onStart/onResume 重复请求。
+    private final LoadGate loadGate = new LoadGate();
     
     private long lastClickTime = 0;
     private static final long CLICK_DELAY = 500; // 500毫秒防抖
@@ -77,33 +90,15 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
             AudioPlayerService.LocalBinder binder = (AudioPlayerService.LocalBinder) service;
             audioPlayerService = binder.getService();
             serviceBound = true;
-            checkNowPlayingStatus();
-            
-            // 监听播放状态变化
-            audioPlayerService.setPlaybackStateListener(new AudioPlayerService.PlaybackStateListener() {
-                @Override
-                public void onPlaybackStateChanged(int playbackState) {
-                    checkNowPlayingStatus();
-                }
-                
-                @Override
-                public void onPlayWhenReadyChanged(boolean playWhenReady) {
-                    checkNowPlayingStatus();
-                }
-                
-                @Override
-                public void onPlayerError(PlaybackException error) {}
-                
-                @Override
-                public void onPositionDiscontinuity() {
-                    checkNowPlayingStatus();
-                }
-            });
+            audioPlayerService.subscribePlaybackState(playbackStateSubscriber);
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
             serviceBound = false;
+            audioPlayerService = null;
+            lastKnownPlaying = false;
+            renderNowPlaying();
         }
     };
 
@@ -126,13 +121,18 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
             return;
         }
 
-        initData();
-        initViews();
+        if (!viewsInitialized) {
+            initData();
+            initViews();
+            viewsInitialized = true;
+        }
         loadSongs();
-        
-        // 绑定服务（服务连接成功后会自动调用checkNowPlayingStatus）
-        Intent intent = new Intent(this, AudioPlayerService.class);
-        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+
+        // onStart/onStop 成对绑定，避免重复绑定和页面销毁后继续持有服务。
+        if (!serviceBound) {
+            Intent intent = new Intent(this, AudioPlayerService.class);
+            bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+        }
     }
     
     @Override
@@ -140,12 +140,12 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         if (songAdapter.isSelectionMode()) {
             return; // 多选模式下的点击已经在Adapter中处理
         }
-        openPlayerActivity(position);
+        openPlayerActivity(song.getFsId(), position, false);
     }
 
     @Override
     public void onPlayFromHereClick(Song song, int position) {
-        openPlayerActivity(position);
+        openPlayerActivity(song.getFsId(), position, false);
     }
     
     @Override
@@ -158,12 +158,16 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
     }
     
     @Override
-    protected void onDestroy() {
-        super.onDestroy();
+    protected void onStop() {
+        loadGate.cancel();
         if (serviceBound) {
+            if (audioPlayerService != null) {
+                audioPlayerService.unsubscribePlaybackState(playbackStateSubscriber);
+            }
             unbindService(serviceConnection);
             serviceBound = false;
         }
+        super.onStop();
     }
     
     /**
@@ -172,38 +176,9 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
      */
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
-        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-            switch (event.getKeyCode()) {
-                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-                    if (serviceBound && audioPlayerService != null) {
-                        if (audioPlayerService.isPlaying()) {
-                            audioPlayerService.pause();
-                        } else {
-                            audioPlayerService.play();
-                        }
-                    }
-                    return true;
-                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY:
-                    if (serviceBound && audioPlayerService != null) {
-                        audioPlayerService.play();
-                    }
-                    return true;
-                case android.view.KeyEvent.KEYCODE_MEDIA_PAUSE:
-                    if (serviceBound && audioPlayerService != null) {
-                        audioPlayerService.pause();
-                    }
-                    return true;
-                case android.view.KeyEvent.KEYCODE_MEDIA_NEXT:
-                    if (serviceBound && audioPlayerService != null) {
-                        audioPlayerService.playNext();
-                    }
-                    return true;
-                case android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS:
-                    if (serviceBound && audioPlayerService != null) {
-                        audioPlayerService.playPrevious();
-                    }
-                    return true;
-            }
+        AudioPlayerService service = serviceBound ? audioPlayerService : null;
+        if (MediaKeyDispatcher.dispatch(event, service, null)) {
+            return true;
         }
         return super.dispatchKeyEvent(event);
     }
@@ -279,11 +254,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         shuffleButton.setVisibility(visibility);
         refreshButton.setVisibility(visibility);
         addSongsButton.setVisibility(visibility);
-        if (isSelectionMode) {
-            nowPlayingButton.setVisibility(View.GONE);
-        } else {
-            checkNowPlayingStatus();
-        }
+        renderNowPlaying();
     }
     
     private void deleteSelectedSongs() {
@@ -332,17 +303,15 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         songAdapter.sortByTitle(sortAscending);
     }
     
-    private void checkNowPlayingStatus() {
-        if (serviceBound && audioPlayerService != null) {
-            // 只有在播放进行中时才显示按钮
-            if (audioPlayerService.isPlaying()) {
-                nowPlayingButton.setVisibility(View.VISIBLE);
-            } else {
-                nowPlayingButton.setVisibility(View.GONE);
-            }
-        } else {
-            nowPlayingButton.setVisibility(View.GONE);
-        }
+    // 多选模式下隐藏“正在播放”入口，避免与批量操作栏重叠。
+    private boolean isNowPlayingSuppressed() {
+        return songAdapter != null && songAdapter.isSelectionMode();
+    }
+
+    private void renderNowPlaying() {
+        if (isDestroyed() || nowPlayingButton == null) return;
+        nowPlayingButton.setVisibility(serviceBound && lastKnownPlaying && !isNowPlayingSuppressed()
+                ? View.VISIBLE : View.GONE);
     }
     
     private void openCurrentPlayer() {
@@ -356,20 +325,20 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
 
     private void initData() {
         playlistManager = new PlaylistManager(this);
-        baiduPanService = RetrofitClient.getInstance().create(BaiduPanService.class);
-        
-        // 获取访问令牌
-        AuthInfo authInfo = BaiduAuthService.getInstance(this).getAuthInfo();
-        if (authInfo != null) {
-            accessToken = authInfo.getAccessToken();
-        }
+        cloudFiles = Repositories.cloudFiles(this);
     }
 
     private void loadSongs() {
+        final long token = loadGate.begin();
+        if (token < 0) {
+            return;
+        }
         playlistManager.getSongsForPlaylist(playlistId, new PlaylistManager.OnSongsLoadListener() {
             @Override
             public void onSuccess(List<Song> songs) {
                 runOnUiThread(() -> {
+                    if (!loadGate.isCurrent(token)) return;
+                    loadGate.finish(token);
                     currentSongs = songs;
                     songAdapter.setSongs(songs);
                     // 应用当前的排序设置
@@ -388,7 +357,11 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
 
             @Override
             public void onError(String error) {
-                runOnUiThread(() -> Toast.makeText(SongListActivity.this, "加载歌曲失败: " + error, Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> {
+                    if (!loadGate.isCurrent(token)) return;
+                    loadGate.finish(token);
+                    Toast.makeText(SongListActivity.this, "加载歌曲失败: " + error, Toast.LENGTH_SHORT).show();
+                });
             }
         });
     }
@@ -440,7 +413,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
     }
 
     private void refreshPlaylist() {
-        if (accessToken == null || accessToken.isEmpty()) {
+        if (!cloudFiles.hasToken()) {
             Toast.makeText(this, "未登录，请先登录", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -457,7 +430,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         progressDialog.show();
         
         // 调用PlaylistManager的刷新方法
-        playlistManager.refreshPlaylist(playlistId, baiduPanService, accessToken, new PlaylistManager.OnResultListener() {
+        playlistManager.refreshPlaylist(playlistId, cloudFiles, new PlaylistManager.OnResultListener() {
             @Override
             public void onSuccess(Object result) {
                 runOnUiThread(() -> {
@@ -489,7 +462,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         }
 
         // 打开播放页面并播放第一首
-        openPlayerActivity(0);
+        openPlayerActivity(-1L, 0, false);
     }
 
     private void shufflePlay() {
@@ -501,14 +474,14 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
        // 随机选择一首歌曲开始播放
         int randomPosition = new SecureRandom().nextInt(currentSongs.size());
         long songId = currentSongs.get(randomPosition).getFsId();
-        openPlayerActivity(songId, true);
+        openPlayerActivity(songId, randomPosition, true);
     }
 
-    private void openPlayerActivity(long songId) {
-        openPlayerActivity(songId, false);
-    }
-
-    private void openPlayerActivity(long songId, boolean shuffle) {
+    /**
+     * 打开播放页。歌曲以稳定的 fsId 标识；position 仅在 fsId 找不到时作为兜底，
+     * 因为播放页会重新加载并排序列表，下标可能已经失效。
+     */
+    private void openPlayerActivity(long songId, int position, boolean shuffle) {
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastClickTime < CLICK_DELAY) {
             return;
@@ -519,6 +492,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         intent.putExtra(PlayerActivity.EXTRA_PLAYLIST_ID, playlistId);
         intent.putExtra(PlayerActivity.EXTRA_PLAYLIST_NAME, playlistName);
         intent.putExtra(PlayerActivity.EXTRA_SONG_ID, songId);
+        intent.putExtra(PlayerActivity.EXTRA_POSITION, position);
         intent.putExtra(PlayerActivity.EXTRA_SORT_ASCENDING, sortAscending);
         if (shuffle) {
             intent.putExtra("EXTRA_SHUFFLE_MODE", true);
@@ -533,6 +507,6 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
         // 刷新歌曲列表
         loadSongs();
         // 检查播放状态（确保每次恢复时都能正确显示/隐藏按钮）
-        checkNowPlayingStatus();
+        renderNowPlaying();
     }
 }

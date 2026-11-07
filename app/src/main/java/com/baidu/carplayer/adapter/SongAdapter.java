@@ -12,12 +12,13 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.R;
+import com.baidu.carplayer.adapter.rows.SongRow;
 import com.baidu.carplayer.model.Song;
+import com.baidu.carplayer.selection.SelectionModel;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -28,10 +29,44 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
     private OnSongClickListener listener;
     private long currentPlayingSongId = -1;
     
-    // 多选模式相关
-    private boolean isSelectionMode = false;
-    private Set<Long> selectedSongIds = new HashSet<>();
+    // 多选状态由页面持有的 SelectionModel 管理；Adapter 只负责渲染和转发点击。
+    private SelectionModel<Song> selection = new SelectionModel<>(Song::getFsId);
     private OnSelectionChangeListener selectionChangeListener;
+    private final SelectionModel.Listener selectionListener = model -> {
+        if (selectionChangeListener != null) {
+            selectionChangeListener.onSelectionChanged(model.size());
+        }
+        notifyDataSetChanged();
+    };
+
+    public SongAdapter() {
+        selection.addListener(selectionListener);
+        setHasStableIds(true);
+    }
+
+    @Override
+    public long getItemId(int position) {
+        return songs.get(position).getFsId();
+    }
+
+    /** 当前位置的不可变行模型。 */
+    public SongRow rowAt(int position) {
+        Song song = songs.get(position);
+        return SongRow.forLibrary(song, selection.isSelectionMode(), selection.isSelected(song), currentPlayingSongId);
+    }
+
+    /** 由页面注入共享的选择状态（例如跨重建保留）。 */
+    public void setSelectionModel(SelectionModel<Song> model) {
+        selection.removeListener(selectionListener);
+        selection = model;
+        selection.setItems(songs);
+        selection.addListener(selectionListener);
+        notifyDataSetChanged();
+    }
+
+    public SelectionModel<Song> getSelectionModel() {
+        return selection;
+    }
 
     public interface OnSongClickListener {
         void onSongClick(Song song, int position);
@@ -52,61 +87,34 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
     }
     
     public void setSelectionMode(boolean selectionMode) {
-        if (this.isSelectionMode != selectionMode) {
-            this.isSelectionMode = selectionMode;
-            if (!selectionMode) {
-                selectedSongIds.clear();
-                notifySelectionChanged();
-            }
-            notifyDataSetChanged();
-        }
+        selection.setSelectionMode(selectionMode);
     }
     
     public boolean isSelectionMode() {
-        return isSelectionMode;
+        return selection.isSelectionMode();
     }
     
     public void toggleSelection(long songId) {
-        if (selectedSongIds.contains(songId)) {
-            selectedSongIds.remove(songId);
-        } else {
-            selectedSongIds.add(songId);
-        }
-        notifySelectionChanged();
-        notifyDataSetChanged();
+        selection.toggleId(songId);
     }
     
     public void selectAll() {
-        for (Song song : songs) {
-            selectedSongIds.add(song.getFsId());
-        }
-        notifySelectionChanged();
-        notifyDataSetChanged();
+        selection.selectAll(null);
     }
     
     public List<Song> getSelectedSongs() {
-        List<Song> result = new ArrayList<>();
-        for (Song song : songs) {
-            if (selectedSongIds.contains(song.getFsId())) {
-                result.add(song);
-            }
-        }
-        return result;
-    }
-    
-    private void notifySelectionChanged() {
-        if (selectionChangeListener != null) {
-            selectionChangeListener.onSelectionChanged(selectedSongIds.size());
-        }
+        return selection.getSelectedItems();
     }
 
     public void setSongs(List<Song> songs) {
-        this.songs = songs != null ? songs : new ArrayList<>();
+        this.songs = songs != null ? new ArrayList<>(songs) : new ArrayList<>();
+        selection.setItems(this.songs);
         notifyDataSetChanged();
     }
 
     public void addSong(Song song) {
         songs.add(song);
+        selection.setItems(songs);
         notifyItemInserted(songs.size() - 1);
     }
 
@@ -114,6 +122,7 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
         if (position >= 0 && position < songs.size()) {
             songs.remove(position);
             notifyItemRemoved(position);
+            selection.setItems(songs);
         }
     }
 
@@ -141,6 +150,7 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
      */
     public void sortByTitle(boolean ascending) {
         Song.sortSongs(songs, ascending);
+        selection.setItems(songs);
         notifyDataSetChanged();
     }
 
@@ -154,8 +164,7 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
 
     @Override
     public void onBindViewHolder(@NonNull SongViewHolder holder, int position) {
-        Song song = songs.get(position);
-        holder.bind(song);
+        holder.bind(rowAt(position));
         
         // 设置斑马纹背景
         int backgroundColor = (position % 2 == 0)
@@ -186,8 +195,8 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
                 int position = getAdapterPosition();
                 if (position == RecyclerView.NO_POSITION) return;
                 Song song = songs.get(position);
-                if (isSelectionMode) {
-                    toggleSelection(song.getFsId());
+                if (selection.isSelectionMode()) {
+                    selection.toggle(song);
                 } else if (listener != null) {
                     listener.onSongClick(song, position);
                 }
@@ -210,21 +219,21 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
             });
         }
 
-        public void bind(Song song) {
-            songTitle.setText(song.getTitle());
-            songPath.setText(song.getPath());
+        public void bind(SongRow row) {
+            songTitle.setText(row.title);
+            songPath.setText(row.subtitle);
             
-            if (isSelectionMode) {
+            if (row.selectionMode) {
                 checkboxSelect.setVisibility(View.VISIBLE);
                 songMore.setVisibility(View.GONE);
-                checkboxSelect.setChecked(selectedSongIds.contains(song.getFsId()));
+                checkboxSelect.setChecked(row.selected);
             } else {
                 checkboxSelect.setVisibility(View.GONE);
                 songMore.setVisibility(View.VISIBLE);
             }
             
             // 显示播放状态
-            if (song.getId() == currentPlayingSongId) {
+            if (row.playing) {
                 songTitle.setTextColor(itemView.getContext().getColor(R.color.car_primary));
             } else {
                 songTitle.setTextColor(itemView.getContext().getColor(R.color.car_text_primary));

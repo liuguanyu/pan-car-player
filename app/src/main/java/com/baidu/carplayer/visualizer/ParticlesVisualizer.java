@@ -52,4 +52,5 @@ public final class ParticlesVisualizer implements AudioVisualizer {
         paint.setShader(null);
     }
     @Override public void reset() { particles.clear(); bass = 0; analyzer.reset(); }
+    @Override public boolean isAtRest() { return particles.isEmpty() && bass < .004f; }
 }

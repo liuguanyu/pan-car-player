@@ -23,8 +23,18 @@ public class DatabaseManager {
                 AppDatabase.class,
                 DATABASE_NAME
         )
+        // 本地播放列表可从网盘重建；schema 升级时直接重建数据库，不维护迁移。
         .fallbackToDestructiveMigration()
         .build();
+    }
+
+    private DatabaseManager(AppDatabase database) {
+        this.database = database;
+    }
+
+    /** 包装已有数据库实例（如内存数据库），用于测试；不影响全局单例。 */
+    public static DatabaseManager forDatabase(AppDatabase database) {
+        return new DatabaseManager(database);
     }
 
     public static DatabaseManager getInstance(Context context) {

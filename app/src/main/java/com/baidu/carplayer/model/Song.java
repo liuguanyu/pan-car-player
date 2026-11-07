@@ -2,6 +2,8 @@ package com.baidu.carplayer.model;
 
 import androidx.annotation.NonNull;
 import androidx.room.Entity;
+import androidx.room.ForeignKey;
+import androidx.room.Index;
 import androidx.room.Ignore;
 import androidx.room.PrimaryKey;
 
@@ -13,8 +15,27 @@ import java.util.Locale;
 
 /**
  * 歌曲实体类
+ *
+ * <p>身份规则：
+ * <ul>
+ *   <li>{@code fsId} 是网盘文件的全局唯一 ID，也是歌曲在播放、歌词、选择、行模型中的唯一身份。
+ *       {@link #getId()} 只是 {@code fsId} 的别名，没有单独的自增 ID。</li>
+ *   <li>数据库行身份为 ({@code fsId}, {@code playlistId})：同一文件可出现在多个列表中，
+ *       但在同一列表中只能出现一次。</li>
+ *   <li>列表下标从不作为身份；页面间传递和恢复播放都使用 fsId，下标只作为找不到时的兜底。</li>
+ * </ul>
  */
-@Entity(tableName = "songs", primaryKeys = {"fsId", "playlistId"})
+@Entity(
+        tableName = "songs",
+        primaryKeys = {"fsId", "playlistId"},
+        foreignKeys = @ForeignKey(
+                entity = Playlist.class,
+                parentColumns = "id",
+                childColumns = "playlistId",
+                onDelete = ForeignKey.CASCADE
+        ),
+        indices = {@Index(value = "playlistId")}
+)
 public class Song {
     public long fsId;
     @NonNull

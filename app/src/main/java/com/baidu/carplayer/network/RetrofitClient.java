@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder;
 
 import java.util.concurrent.TimeUnit;
 
+import com.baidu.carplayer.BuildConfig;
+
 import okhttp3.OkHttpClient;
 import okhttp3.logging.HttpLoggingInterceptor;
 import retrofit2.Retrofit;
@@ -61,10 +63,12 @@ public class RetrofitClient {
     private static Retrofit createRetrofit(String baseUrl) {
         OkHttpClient.Builder httpClientBuilder = new OkHttpClient.Builder();
         
-        // 添加日志拦截器（仅调试模式）
-        HttpLoggingInterceptor loggingInterceptor = new HttpLoggingInterceptor();
-        loggingInterceptor.setLevel(HttpLoggingInterceptor.Level.BODY);
-        httpClientBuilder.addInterceptor(loggingInterceptor);
+        // 生产环境禁止 BODY 日志，避免 access_token 出现在日志中。
+        if (BuildConfig.DEBUG) {
+            HttpLoggingInterceptor loggingInterceptor = new HttpLoggingInterceptor();
+            loggingInterceptor.setLevel(HttpLoggingInterceptor.Level.BASIC);
+            httpClientBuilder.addInterceptor(loggingInterceptor);
+        }
         
         // 设置超时时间 - 车载环境网络可能不稳定，适当增加
         httpClientBuilder.connectTimeout(ApiConstants.CONNECT_TIMEOUT, TimeUnit.MILLISECONDS);

@@ -74,7 +74,8 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:padding="32dp">
+        android:padding="32dp"
+        android:clipToPadding="false">
         
         <!-- 粒子背景 -->
         <com.baidu.carplayer.widget.ParticleBackgroundView
@@ -102,6 +103,9 @@
             android:id="@+id/visualizer_view"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:layout_marginTop="-24dp"
+            android:layout_marginBottom="-24dp"
+            android:layout_marginHorizontal="-16dp"
             android:visibility="gone" />
 
         <!-- 音量控制悬浮条 -->

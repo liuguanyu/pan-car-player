@@ -121,6 +121,7 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private void startPolling() {
+        authService.cancelPolling();
         pollingRunnable = new Runnable() {
             @Override
             public void run() {
@@ -197,8 +198,11 @@ public class LoginActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        super.onDestroy();
         stopPolling();
+        if (authService != null) {
+            authService.cancelPolling();
+        }
+        super.onDestroy();
         if (handler != null) {
             handler.removeCallbacksAndMessages(null);
         }

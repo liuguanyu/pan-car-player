@@ -21,15 +21,16 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.adapter.PlaylistAdapter;
-import com.baidu.carplayer.auth.BaiduAuthService;
 import com.baidu.carplayer.manager.PlaylistManager;
-import com.baidu.carplayer.model.AuthInfo;
+import com.baidu.carplayer.ui.LoadGate;
 import com.baidu.carplayer.model.Playlist;
-import com.baidu.carplayer.network.BaiduPanService;
-import com.baidu.carplayer.network.RetrofitClient;
+import com.baidu.carplayer.repository.CloudFileRepository;
+import com.baidu.carplayer.repository.Repositories;
+import com.baidu.carplayer.playback.MediaKeyDispatcher;
+import com.baidu.carplayer.playback.PlaybackCoordinator;
+import com.baidu.carplayer.playback.PlaybackState;
 import com.baidu.carplayer.service.AudioPlayerService;
 import com.google.android.material.textfield.TextInputEditText;
-import androidx.media3.common.PlaybackException;
 
 import java.util.List;
 
@@ -46,10 +47,19 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
     private View emptyState;
 
     private AudioPlayerService audioPlayerService;
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    // “正在播放”按钮只由 Service 发布的播放状态驱动。
+    private final PlaybackCoordinator.StateSubscriber playbackStateSubscriber = state -> {
+        boolean playing = state.getStatus() == PlaybackState.Status.READY && state.isPlayWhenReady();
+        mainHandler.post(() -> {
+            lastKnownPlaying = playing;
+            renderNowPlaying();
+        });
+    };
+    private boolean lastKnownPlaying = false;
     private boolean serviceBound = false;
     
-    private BaiduPanService baiduPanService;
-    private String accessToken;
+    private CloudFileRepository cloudFiles;
 
     private ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -57,33 +67,15 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
             AudioPlayerService.LocalBinder binder = (AudioPlayerService.LocalBinder) service;
             audioPlayerService = binder.getService();
             serviceBound = true;
-            checkNowPlayingStatus();
-            
-            // 监听播放状态变化
-            audioPlayerService.setPlaybackStateListener(new AudioPlayerService.PlaybackStateListener() {
-                @Override
-                public void onPlaybackStateChanged(int playbackState) {
-                    checkNowPlayingStatus();
-                }
-                
-                @Override
-                public void onPlayWhenReadyChanged(boolean playWhenReady) {
-                    checkNowPlayingStatus();
-                }
-                
-                @Override
-                public void onPlayerError(PlaybackException error) {}
-                
-                @Override
-                public void onPositionDiscontinuity() {
-                    checkNowPlayingStatus();
-                }
-            });
+            audioPlayerService.subscribePlaybackState(playbackStateSubscriber);
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
             serviceBound = false;
+            audioPlayerService = null;
+            lastKnownPlaying = false;
+            renderNowPlaying();
         }
     };
 
@@ -95,25 +87,30 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
         initViews();
         initData();
         
-        // 绑定服务
-        Intent intent = new Intent(this, AudioPlayerService.class);
-        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+        // 服务绑定放在 onStart，与 onStop 配对。
     }
     
     @Override
     protected void onStart() {
         super.onStart();
-        // 每次Activity可见时检查播放状态
-        checkNowPlayingStatus();
+        if (!serviceBound) {
+            Intent intent = new Intent(this, AudioPlayerService.class);
+            bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+        }
+        renderNowPlaying();
     }
-    
+
     @Override
-    protected void onDestroy() {
-        super.onDestroy();
+    protected void onStop() {
+        loadGate.cancel();
         if (serviceBound) {
+            if (audioPlayerService != null) {
+                audioPlayerService.unsubscribePlaybackState(playbackStateSubscriber);
+            }
             unbindService(serviceConnection);
             serviceBound = false;
         }
+        super.onStop();
     }
     
     /**
@@ -122,38 +119,9 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
      */
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
-        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-            switch (event.getKeyCode()) {
-                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-                    if (serviceBound && audioPlayerService != null) {
-                        if (audioPlayerService.isPlaying()) {
-                            audioPlayerService.pause();
-                        } else {
-                            audioPlayerService.play();
-                        }
-                    }
-                    return true;
-                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY:
-                    if (serviceBound && audioPlayerService != null) {
-                        audioPlayerService.play();
-                    }
-                    return true;
-                case android.view.KeyEvent.KEYCODE_MEDIA_PAUSE:
-                    if (serviceBound && audioPlayerService != null) {
-                        audioPlayerService.pause();
-                    }
-                    return true;
-                case android.view.KeyEvent.KEYCODE_MEDIA_NEXT:
-                    if (serviceBound && audioPlayerService != null) {
-                        audioPlayerService.playNext();
-                    }
-                    return true;
-                case android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS:
-                    if (serviceBound && audioPlayerService != null) {
-                        audioPlayerService.playPrevious();
-                    }
-                    return true;
-            }
+        AudioPlayerService service = serviceBound ? audioPlayerService : null;
+        if (MediaKeyDispatcher.dispatch(event, service, null)) {
+            return true;
         }
         return super.dispatchKeyEvent(event);
     }
@@ -180,17 +148,14 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
         findViewById(R.id.add_playlist_empty_button).setOnClickListener(v -> showCreatePlaylistDialog());
     }
     
-    private void checkNowPlayingStatus() {
-        if (serviceBound && audioPlayerService != null) {
-            // 只有在播放进行中时才显示按钮
-            if (audioPlayerService.isPlaying()) {
-                nowPlayingButton.setVisibility(View.VISIBLE);
-            } else {
-                nowPlayingButton.setVisibility(View.GONE);
-            }
-        } else {
-            nowPlayingButton.setVisibility(View.GONE);
-        }
+    private boolean isNowPlayingSuppressed() {
+        return false;
+    }
+
+    private void renderNowPlaying() {
+        if (isDestroyed() || nowPlayingButton == null) return;
+        nowPlayingButton.setVisibility(serviceBound && lastKnownPlaying && !isNowPlayingSuppressed()
+                ? View.VISIBLE : View.GONE);
     }
     
     private void openCurrentPlayer() {
@@ -200,24 +165,25 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
         startActivity(intent);
     }
 
+    // 只允许一次在途加载，避免 onStart/onResume 重复请求。
+    private final LoadGate loadGate = new LoadGate();
+
     private void initData() {
         playlistManager = new PlaylistManager(this);
-        baiduPanService = RetrofitClient.getInstance().create(BaiduPanService.class);
-        
-        // 获取访问令牌
-        AuthInfo authInfo = BaiduAuthService.getInstance(this).getAuthInfo();
-        if (authInfo != null) {
-            accessToken = authInfo.getAccessToken();
-        }
-        
-        loadPlaylists();
+        cloudFiles = Repositories.cloudFiles(this);
     }
 
     private void loadPlaylists() {
+        final long token = loadGate.begin();
+        if (token < 0) {
+            return;
+        }
         playlistManager.getAllPlaylists(new PlaylistManager.OnPlaylistsLoadListener() {
             @Override
             public void onSuccess(List<Playlist> playlists) {
                 runOnUiThread(() -> {
+                    if (!loadGate.isCurrent(token)) return;
+                    loadGate.finish(token);
                     playlistAdapter.setPlaylists(playlists);
                     
                     // 显示或隐藏空状态
@@ -233,7 +199,11 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
 
             @Override
             public void onError(String error) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "加载播放列表失败: " + error, Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> {
+                    if (!loadGate.isCurrent(token)) return;
+                    loadGate.finish(token);
+                    Toast.makeText(MainActivity.this, "加载播放列表失败: " + error, Toast.LENGTH_SHORT).show();
+                });
             }
         });
     }
@@ -409,7 +379,7 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
     }
     
     private void refreshPlaylist(Playlist playlist) {
-        if (accessToken == null || accessToken.isEmpty()) {
+        if (!cloudFiles.hasToken()) {
             Toast.makeText(this, "未登录，请先登录", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -426,7 +396,7 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
         progressDialog.show();
         
         // 调用PlaylistManager的刷新方法
-        playlistManager.refreshPlaylist(playlist.getId(), baiduPanService, accessToken, new PlaylistManager.OnResultListener() {
+        playlistManager.refreshPlaylist(playlist.getId(), cloudFiles, new PlaylistManager.OnResultListener() {
             @Override
             public void onSuccess(Object result) {
                 runOnUiThread(() -> {

@@ -42,15 +42,27 @@ public class BaiduAuthService {
     private final Context context;
     private final SharedPreferences prefs;
     private final BaiduPanService oauthService;
-    private AuthInfo authInfo;
-    private Handler handler;
+    // 认证状态的唯一写入口；本类只负责网络交互和持久化格式。
+    private final AuthStore store;
+    private final Handler handler;
     
-    public BaiduAuthService(Context context) {
+    /** 请使用 {@link #getInstance}；多个实例会各自持有认证状态，导致登出/刷新不同步。 */
+    private BaiduAuthService(Context context) {
         this.context = context.getApplicationContext();
-        this.prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        this.prefs = this.context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
         this.oauthService = RetrofitClient.getOAuthInstance().create(BaiduPanService.class);
         this.handler = new Handler(Looper.getMainLooper());
-        this.authInfo = loadAuthInfo();
+        this.store = new AuthStore(new AuthStore.Persistence() {
+            @Override
+            public AuthInfo load() {
+                return loadAuthInfo();
+            }
+
+            @Override
+            public void save(AuthInfo info) {
+                saveAuthInfo(info);
+            }
+        }, System::currentTimeMillis);
     }
     
     public static BaiduAuthService getInstance(Context context) {
@@ -85,7 +97,7 @@ public class BaiduAuthService {
     /**
      * 保存认证信息到SharedPreferences
      */
-    private void saveAuthInfo() {
+    private void saveAuthInfo(AuthInfo authInfo) {
         SharedPreferences.Editor editor = prefs.edit();
         editor.putString(KEY_ACCESS_TOKEN, authInfo.getAccessToken());
         editor.putString(KEY_REFRESH_TOKEN, authInfo.getRefreshToken());
@@ -116,34 +128,21 @@ public class BaiduAuthService {
      * 检查是否已认证
      */
     public boolean isAuthenticated() {
-        if (!authInfo.isLoggedIn()) {
-            return false;
-        }
-        
-        if (authInfo.getAccessToken() == null || authInfo.getAccessToken().isEmpty()) {
-            return false;
-        }
-        
-        // 检查token是否过期
-        if (System.currentTimeMillis() >= authInfo.getExpiresAt()) {
-            return false;
-        }
-        
-        return true;
+        return store.isAuthenticated();
     }
     
     /**
      * 获取访问令牌
      */
     public String getAccessToken() {
-        return authInfo.getAccessToken();
+        return store.getAccessToken();
     }
     
     /**
      * 获取认证信息
      */
     public AuthInfo getAuthInfo() {
-        return authInfo;
+        return store.snapshot();
     }
     
     /**
@@ -178,103 +177,22 @@ public class BaiduAuthService {
         });
     }
     
-    /**
-     * 轮询设备码状态
-     */
-    public void pollDeviceCodeStatus(String deviceCode, AuthCallback<Boolean> callback) {
-        pollDeviceCodeStatus(deviceCode, 0, callback);
-    }
     
-    private void pollDeviceCodeStatus(String deviceCode, int count, AuthCallback<Boolean> callback) {
-        if (count >= ApiConstants.MAX_POLLING_COUNT) {
-            callback.onError("授权超时");
-            return;
-        }
-        
-        Call<TokenResponse> call = oauthService.getTokenByDeviceCode(
-                "device_token",
-                deviceCode,
-                BaiduConfig.APP_KEY,
-                BaiduConfig.SECRET_KEY
-        );
-        
-        call.enqueue(new Callback<TokenResponse>() {
-            @Override
-            public void onResponse(Call<TokenResponse> call, Response<TokenResponse> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    TokenResponse tokenResponse = response.body();
-                    
-                    // 授权成功
-                    if (tokenResponse.getAccessToken() != null && !tokenResponse.getAccessToken().isEmpty()) {
-                        authInfo.setAccessToken(tokenResponse.getAccessToken());
-                        authInfo.setRefreshToken(tokenResponse.getRefreshToken());
-                        authInfo.setExpiresAt(System.currentTimeMillis() + tokenResponse.getExpiresIn() * 1000);
-                        authInfo.setScope(tokenResponse.getScope());
-                        authInfo.setSessionKey(tokenResponse.getSessionKey());
-                        authInfo.setSessionSecret(tokenResponse.getSessionSecret());
-                        authInfo.setLoggedIn(true);
-                        saveAuthInfo();
-                        callback.onSuccess(true);
-                    } else {
-                        // 理论上成功响应不应该包含错误，但为了健壮性保留处理
-                        handleAuthError(tokenResponse.getError(), tokenResponse.getErrorDescription(), deviceCode, count, callback);
-                    }
-                } else {
-                    // 处理4xx错误，Baidu API在pending状态会返回400
-                    try {
-                        String errorBody = response.errorBody().string();
-                        // 简单的JSON解析，避免引入额外依赖
-                        if (errorBody.contains("authorization_pending")) {
-                            handler.postDelayed(() -> {
-                                pollDeviceCodeStatus(deviceCode, count + 1, callback);
-                            }, ApiConstants.POLLING_INTERVAL);
-                        } else if (errorBody.contains("expired_token")) {
-                            callback.onError("授权已过期");
-                        } else {
-                            callback.onError("授权失败: " + response.code());
-                        }
-                    } catch (Exception e) {
-                        callback.onError("授权失败: " + e.getMessage());
-                    }
-                }
-            }
-
-            private void handleAuthError(String error, String description, String deviceCode, int count, AuthCallback<Boolean> callback) {
-                // 授权中
-                if ("authorization_pending".equals(error)) {
-                    handler.postDelayed(() -> {
-                        pollDeviceCodeStatus(deviceCode, count + 1, callback);
-                    }, ApiConstants.POLLING_INTERVAL);
-                }
-                // 授权过期
-                else if ("expired_token".equals(error)) {
-                    callback.onError("授权已过期");
-                }
-                // 其他错误
-                else {
-                    callback.onError(description != null ? description : "授权失败");
-                }
-            }
-            
-            @Override
-            public void onFailure(Call<TokenResponse> call, Throwable t) {
-                callback.onError(t.getMessage());
-            }
-        });
-    }
     
     /**
      * 刷新token
      */
     public void refreshToken(AuthCallback<Boolean> callback) {
-        if (authInfo.getRefreshToken() == null || authInfo.getRefreshToken().isEmpty()) {
+        String refreshToken = store.getRefreshToken();
+        if (refreshToken == null || refreshToken.isEmpty()) {
             callback.onError("无刷新令牌");
             return;
         }
+        final long requestGeneration = store.generation();
         
         Call<TokenResponse> call = oauthService.refreshToken(
                 "refresh_token",
-                authInfo.getRefreshToken(),
+                refreshToken,
                 BaiduConfig.APP_KEY,
                 BaiduConfig.SECRET_KEY
         );
@@ -282,23 +200,14 @@ public class BaiduAuthService {
         call.enqueue(new Callback<TokenResponse>() {
             @Override
             public void onResponse(Call<TokenResponse> call, Response<TokenResponse> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    TokenResponse tokenResponse = response.body();
-                    
-                    if (tokenResponse.getAccessToken() != null && !tokenResponse.getAccessToken().isEmpty()) {
-                        authInfo.setAccessToken(tokenResponse.getAccessToken());
-                        authInfo.setRefreshToken(tokenResponse.getRefreshToken());
-                        authInfo.setExpiresAt(System.currentTimeMillis() + tokenResponse.getExpiresIn() * 1000);
-                        authInfo.setScope(tokenResponse.getScope());
-                        authInfo.setLoggedIn(true);
-                        saveAuthInfo();
-                        callback.onSuccess(true);
-                    } else {
-                        callback.onError(tokenResponse.getErrorDescription() != null ? 
-                                tokenResponse.getErrorDescription() : "刷新令牌失败");
-                    }
+                TokenResponse tokenResponse = response.isSuccessful() ? response.body() : null;
+                if (tokenResponse != null && store.applyToken(requestGeneration, tokenResponse)) {
+                    callback.onSuccess(true);
+                } else if (requestGeneration != store.generation()) {
+                    callback.onError("刷新已取消");
                 } else {
-                    callback.onError("刷新令牌失败");
+                    callback.onError(tokenResponse != null && tokenResponse.getErrorDescription() != null
+                            ? tokenResponse.getErrorDescription() : "刷新令牌失败");
                 }
             }
             
@@ -313,8 +222,14 @@ public class BaiduAuthService {
      * 退出登录
      */
     public void logout() {
-        authInfo = new AuthInfo();
-        saveAuthInfo();
+        handler.removeCallbacksAndMessages(null);
+        store.clear();
+    }
+
+    /** 使当前设备码轮询和已发出的认证回调失效。 */
+    public void cancelPolling() {
+        store.invalidate();
+        handler.removeCallbacksAndMessages(null);
     }
     
     /**
@@ -368,6 +283,7 @@ public class BaiduAuthService {
      * 轮询Token（兼容旧代码）
      */
     public void pollToken(String deviceCode, TokenCallback callback) {
+        final long requestGeneration = store.generation();
         Call<TokenResponse> call = oauthService.getTokenByDeviceCode(
                 "device_token",
                 deviceCode,
@@ -378,60 +294,41 @@ public class BaiduAuthService {
         call.enqueue(new Callback<TokenResponse>() {
             @Override
             public void onResponse(Call<TokenResponse> call, Response<TokenResponse> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    TokenResponse tokenResponse = response.body();
-                    
-                    // 授权成功
-                    if (tokenResponse.getAccessToken() != null && !tokenResponse.getAccessToken().isEmpty()) {
-                        authInfo.setAccessToken(tokenResponse.getAccessToken());
-                        authInfo.setRefreshToken(tokenResponse.getRefreshToken());
-                        authInfo.setExpiresAt(System.currentTimeMillis() + tokenResponse.getExpiresIn() * 1000);
-                        authInfo.setScope(tokenResponse.getScope());
-                        authInfo.setSessionKey(tokenResponse.getSessionKey());
-                        authInfo.setSessionSecret(tokenResponse.getSessionSecret());
-                        authInfo.setLoggedIn(true);
-                        saveAuthInfo();
-                        callback.onSuccess(authInfo);
-                    } else {
-                        handleAuthError(tokenResponse.getError(), tokenResponse.getErrorDescription(), callback);
-                    }
-                } else {
-                    // 处理4xx错误，Baidu API在pending状态会返回400
+                String errorBody = null;
+                if (!response.isSuccessful() && response.errorBody() != null) {
                     try {
-                        String errorBody = response.errorBody().string();
-                        // 简单的JSON解析，避免引入额外依赖
-                        if (errorBody.contains("authorization_pending")) {
-                            callback.onPending();
-                        } else if (errorBody.contains("expired_token")) {
-                            callback.onError("授权已过期");
-                        } else {
-                            callback.onError("授权失败: " + response.code());
-                        }
-                    } catch (Exception e) {
-                        callback.onError("授权失败: " + e.getMessage());
+                        errorBody = response.errorBody().string();
+                    } catch (java.io.IOException ignored) {
+                        // 按普通 HTTP 失败处理
                     }
                 }
+                deliver(TokenPollResult.evaluate(store, requestGeneration, response.isSuccessful(),
+                        response.code(), response.body(), errorBody), callback);
             }
 
-            private void handleAuthError(String error, String description, TokenCallback callback) {
-                // 授权中
-                if ("authorization_pending".equals(error)) {
-                    callback.onPending();
-                }
-                // 授权过期
-                else if ("expired_token".equals(error)) {
-                    callback.onError("授权已过期");
-                }
-                // 其他错误
-                else {
-                    callback.onError(description != null ? description : "授权失败");
-                }
-            }
-            
             @Override
             public void onFailure(Call<TokenResponse> call, Throwable t) {
-                callback.onError(t.getMessage());
+                deliver(TokenPollResult.networkFailure(store, requestGeneration, t.getMessage()), callback);
             }
         });
+    }
+
+    private void deliver(TokenPollResult result, TokenCallback callback) {
+        switch (result.kind) {
+            case SUCCESS:
+                callback.onSuccess(store.snapshot());
+                break;
+            case PENDING:
+            case SLOW_DOWN:
+                callback.onPending();
+                break;
+            case EXPIRED:
+            case FAILED:
+                callback.onError(result.message);
+                break;
+            case STALE:
+            default:
+                break; // 已取消或已登出：静默丢弃
+        }
     }
 }
