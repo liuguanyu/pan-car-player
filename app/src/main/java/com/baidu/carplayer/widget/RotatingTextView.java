@@ -131,6 +131,7 @@ public class RotatingTextView extends View {
      * 暂停旋转
      */
     public void pauseRotation() {
+        resumeWhenVisible = false;
         if (!isRotating) {
             return;
         }
@@ -149,6 +150,10 @@ public class RotatingTextView extends View {
         if (isRotating) {
             return;
         }
+        if (getVisibility() != VISIBLE) {
+            resumeWhenVisible = true;
+            return;
+        }
         
         startRotation();
     }
@@ -159,6 +164,28 @@ public class RotatingTextView extends View {
     public boolean isRotating() {
         return isRotating;
     }
+
+    /**
+     * 隐藏时必须清除 View 动画：父布局会继续绘制带有进行中 Animation 的 GONE 子视图，
+     * 否则切到可视化模式后歌名仍会叠加在可视化画面上。重新可见时恢复之前的旋转状态。
+     */
+    @Override
+    public void setVisibility(int visibility) {
+        boolean wasRotating = isRotating;
+        if (visibility != VISIBLE && wasRotating) {
+            pauseRotation();
+            clearAnimation();
+            resumeWhenVisible = true;
+        }
+        super.setVisibility(visibility);
+        if (visibility == VISIBLE && resumeWhenVisible) {
+            resumeWhenVisible = false;
+            resumeRotation();
+        }
+    }
+
+    /** 隐藏期间收到的播放/暂停请求只记录意图，不启动动画。 */
+    private boolean resumeWhenVisible;
 
     /**
      * 设置文字
