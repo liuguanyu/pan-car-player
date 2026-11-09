@@ -24,6 +24,7 @@ import com.baidu.carplayer.adapter.PlaylistAdapter;
 import com.baidu.carplayer.backup.PlaylistTransferController;
 import com.baidu.carplayer.manager.PlaylistManager;
 import com.baidu.carplayer.ui.LoadGate;
+import com.baidu.carplayer.ui.DialogStripes;
 import com.baidu.carplayer.model.Playlist;
 import com.baidu.carplayer.repository.CloudFileRepository;
 import com.baidu.carplayer.repository.Repositories;
@@ -295,7 +296,7 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
             }
         };
         
-        new AlertDialog.Builder(this)
+        DialogStripes.show(new AlertDialog.Builder(this)
                 .setTitle(playlist.getName())
                 .setAdapter(adapter, (dialog, which) -> {
                     switch (which) {
@@ -309,8 +310,7 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
                             showDeleteConfirmDialog(playlist);
                             break;
                     }
-                })
-                .show();
+                }));
     }
 
     private void showRenamePlaylistDialog(Playlist playlist) {

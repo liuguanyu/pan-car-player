@@ -22,6 +22,7 @@ import com.baidu.carplayer.concurrent.AppExecutors;
 import com.baidu.carplayer.manager.PlaylistManager;
 import com.baidu.carplayer.model.Playlist;
 import com.baidu.carplayer.model.Song;
+import com.baidu.carplayer.ui.DialogStripes;
 import com.baidu.carplayer.network.LogRedactor;
 import com.baidu.carplayer.repository.CloudBackupRepository;
 import com.baidu.carplayer.repository.Repositories;
@@ -77,15 +78,14 @@ public final class PlaylistTransferController {
     // ---------------------------------------------------------------- 入口
 
     public void showMenu() {
-        new AlertDialog.Builder(activity)
+        DialogStripes.show(new AlertDialog.Builder(activity)
                 .setItems(new String[]{"导入列表", "导出列表"}, (d, which) -> {
                     if (which == 0) startImport(); else startExport();
-                })
-                .show();
+                }));
     }
 
     public void startImport() {
-        new AlertDialog.Builder(activity)
+        DialogStripes.show(new AlertDialog.Builder(activity)
                 .setTitle("导入列表")
                 .setItems(new String[]{"从本机文件导入", "从百度网盘导入"}, (d, which) -> {
                     if (which == 0) {
@@ -97,8 +97,7 @@ public final class PlaylistTransferController {
                         pending = Pending.IMPORT_CLOUD;
                         cloudBrowser.launch(FileBrowserActivity.pickIntent(activity, BrowserMode.PICK_JSON));
                     }
-                })
-                .show();
+                }));
     }
 
     public void startExport() {
@@ -125,7 +124,7 @@ public final class PlaylistTransferController {
             labels[i] = playlists.get(i).getName() + "（" + playlists.get(i).getSongCount() + " 首）";
             checked[i] = true;
         }
-        new AlertDialog.Builder(activity)
+        DialogStripes.show(new AlertDialog.Builder(activity)
                 .setTitle("选择要导出的列表")
                 .setMultiChoiceItems(labels, checked, (d, which, isChecked) -> checked[which] = isChecked)
                 .setPositiveButton("下一步", (d, w) -> {
@@ -138,12 +137,11 @@ public final class PlaylistTransferController {
                     pendingExport = selected;
                     chooseExportTarget();
                 })
-                .setNegativeButton("取消", null)
-                .show();
+                .setNegativeButton("取消", null));
     }
 
     private void chooseExportTarget() {
-        new AlertDialog.Builder(activity)
+        DialogStripes.show(new AlertDialog.Builder(activity)
                 .setTitle("导出到")
                 .setItems(new String[]{"本机文件", "百度网盘"}, (d, which) -> {
                     if (which == 0) {
@@ -155,8 +153,7 @@ public final class PlaylistTransferController {
                         pending = Pending.EXPORT_CLOUD;
                         cloudBrowser.launch(FileBrowserActivity.pickIntent(activity, BrowserMode.PICK_DIR));
                     }
-                })
-                .show();
+                }));
     }
 
     private void askFileName(Consumer<String> onName) {
@@ -288,7 +285,7 @@ public final class PlaylistTransferController {
         }
         String title = "导入预览：" + lists.size() + " 个列表，" + backup.totalSongs() + " 首"
                 + (backup.totalSkipped() > 0 ? "，跳过 " + backup.totalSkipped() + " 个无效条目" : "");
-        new AlertDialog.Builder(activity)
+        DialogStripes.show(new AlertDialog.Builder(activity)
                 .setTitle(title)
                 .setMultiChoiceItems(labels, checked, (d, which, isChecked) -> checked[which] = isChecked)
                 .setPositiveButton("导入", (d, w) -> {
@@ -300,8 +297,7 @@ public final class PlaylistTransferController {
                     }
                     runImport(selected);
                 })
-                .setNegativeButton("取消", null)
-                .show();
+                .setNegativeButton("取消", null));
     }
 
     private void runImport(List<BackupPlaylist> selected) {
