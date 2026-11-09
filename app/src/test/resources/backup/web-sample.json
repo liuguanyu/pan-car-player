@@ -1,0 +1,128 @@
+{
+  "version": "1.0",
+  "export_time": "2026-11-09T01:59:55.036Z",
+  "playlists": [
+    {
+      "name": "生肖",
+      "description": "Created from web interface",
+      "items": [
+        {
+          "fs_id": 950121540866953,
+          "server_filename": "01.子鼠·尘埃里的星光.mp3",
+          "path": "/音乐/suno/生肖/01.子鼠·尘埃里的星光.mp3",
+          "size": 4569270,
+          "category": 2,
+          "isdir": 0,
+          "local_mtime": 1784211297,
+          "server_mtime": 1784211774,
+          "md5": "605de2261ub2519848699493e10519f1",
+          "add_time": 1784516969,
+          "duration": 196.512
+        },
+        {
+          "fs_id": 655087875085369,
+          "server_filename": "02.丑牛·雾中的界线.mp3",
+          "path": "/音乐/suno/生肖/02.丑牛·雾中的界线.mp3",
+          "size": 6290814,
+          "category": 2,
+          "isdir": 0,
+          "local_mtime": 1784213392,
+          "server_mtime": 1784213845,
+          "md5": "a1c2e084bg1052c36546fb897de93c45",
+          "add_time": 1784516969,
+          "duration": 283.944
+        },
+        {
+          "fs_id": 539671301613017,
+          "server_filename": "03.寅虎·潜行在黎明边缘.mp3",
+          "path": "/音乐/suno/生肖/03.寅虎·潜行在黎明边缘.mp3",
+          "size": 7940214,
+          "category": 2,
+          "isdir": 0,
+          "local_mtime": 1784217637,
+          "server_mtime": 1784217952,
+          "md5": "b4e4236cao4e773097dbe649111694a0",
+          "add_time": 1784516969,
+          "duration": 346.752
+        }
+      ],
+      "create_time": 1784516969,
+      "update_time": 1784516969
+    },
+    {
+      "name": "周.转",
+      "description": "Created from web interface",
+      "items": [
+        {
+          "fs_id": 921766681642038,
+          "server_filename": "01.星期一的晚高峰.mp3",
+          "path": "/音乐/suno/周·转/01.星期一的晚高峰.mp3",
+          "size": 4975888,
+          "category": 2,
+          "isdir": 0,
+          "local_mtime": 1788324703,
+          "server_mtime": 1788856294,
+          "md5": "34877a44cueace9d389167f79a092ec8",
+          "add_time": 1790144697,
+          "duration": 211.8
+        },
+        {
+          "fs_id": 749079988099842,
+          "server_filename": "02.七夕.mp3",
+          "path": "/音乐/suno/周·转/02.七夕.mp3",
+          "size": 4649719,
+          "category": 2,
+          "isdir": 0,
+          "local_mtime": 1787143978,
+          "server_mtime": 1787144023,
+          "md5": "b656d8045h0b89fdf84dd6d31b970102",
+          "add_time": 1790144697,
+          "duration": 202.392
+        },
+        {
+          "fs_id": 2319948456587,
+          "server_filename": "03.曲径通幽.mp3",
+          "path": "/音乐/suno/周·转/03.曲径通幽.mp3",
+          "size": 5272983,
+          "category": 2,
+          "isdir": 0,
+          "local_mtime": 1788326511,
+          "server_mtime": 1788988678,
+          "md5": "9bdb7428at3b571e0bada6c5ea74df69",
+          "add_time": 1790144697,
+          "duration": 225.432
+        }
+      ],
+      "create_time": 1787196079,
+      "update_time": 1790144697
+    }
+  ],
+  "recentSongs": [
+    {
+      "fs_id": 466328828307497,
+      "server_filename": "07.油价又涨了.mp3",
+      "path": "/音乐/suno/周·转/07.油价又涨了.mp3",
+      "size": 5316555,
+      "category": 2,
+      "isdir": 0,
+      "local_mtime": 1787613285,
+      "server_mtime": 1790126354,
+      "md5": "3ac26b7f0k8b6ccb0e73a733dc19c412",
+      "add_time": 1790144697,
+      "duration": 233.04
+    },
+    {
+      "fs_id": 264701166715625,
+      "server_filename": "06.又过一遍童年.mp3",
+      "path": "/音乐/suno/周·转/06.又过一遍童年.mp3",
+      "size": 4834715,
+      "category": 2,
+      "isdir": 0,
+      "local_mtime": 1787148356,
+      "server_mtime": 1787148451,
+      "md5": "42519dba0i9f3d7f93ad6097bb5ab978",
+      "add_time": 1790144697,
+      "duration": 207.24
+    }
+  ]
+}

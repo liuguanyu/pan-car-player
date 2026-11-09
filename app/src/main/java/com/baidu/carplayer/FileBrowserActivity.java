@@ -13,6 +13,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.adapter.FileAdapter;
+import com.baidu.carplayer.browser.BrowserMode;
+import com.baidu.carplayer.browser.FileListing;
 import com.baidu.carplayer.concurrent.AppExecutors;
 import com.baidu.carplayer.manager.PlaylistManager;
 import com.baidu.carplayer.model.FileItem;
@@ -33,6 +35,14 @@ import java.util.List;
 public class FileBrowserActivity extends AppCompatActivity implements FileAdapter.OnFileClickListener {
 
     public static final String EXTRA_PLAYLIST_ID = "playlist_id";
+    /** 选择模式的返回值：选中的网盘路径（文件或目录）与文件 fs_id。 */
+    public static final String RESULT_PATH = "result_path";
+    public static final String RESULT_FS_ID = "result_fs_id";
+
+    /** 选择网盘上的备份 JSON 或目录。 */
+    public static Intent pickIntent(android.content.Context context, BrowserMode mode) {
+        return new Intent(context, FileBrowserActivity.class).putExtra(BrowserMode.EXTRA, mode.name());
+    }
 
     private RecyclerView fileRecyclerView;
     private FileAdapter fileAdapter;
@@ -49,6 +59,7 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
     private View emptyLayout;
 
     private String playlistId;
+    private BrowserMode mode = BrowserMode.ADD_SONGS;
     private String currentPath = "/";
     private List<FileItem> currentFiles = new ArrayList<>();
     private PlaylistManager playlistManager;
@@ -66,8 +77,9 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_file_browser);
 
+        mode = BrowserMode.fromName(getIntent().getStringExtra(BrowserMode.EXTRA));
         playlistId = getIntent().getStringExtra(EXTRA_PLAYLIST_ID);
-        if (playlistId == null) {
+        if (!mode.isPicker() && playlistId == null) {
             Toast.makeText(this, "播放列表ID为空", Toast.LENGTH_SHORT).show();
             finish();
             return;
@@ -77,8 +89,10 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
         initData();
         loadFiles();
         
-        // 提示用户选择歌曲添加
-        Toast.makeText(this, "请选择文件或文件夹添加到播放列表", Toast.LENGTH_LONG).show();
+        // 提示用户选择
+        Toast.makeText(this, mode == BrowserMode.PICK_JSON ? "请选择播放列表备份文件（.json）"
+                : mode == BrowserMode.PICK_DIR ? "请进入目标目录后点击“选择此目录”"
+                : "请选择文件或文件夹添加到播放列表", Toast.LENGTH_LONG).show();
     }
 
     private void initViews() {
@@ -105,13 +119,22 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
         backButton.setOnClickListener(v -> navigateUp());
         sortButton.setOnClickListener(v -> toggleSortOrder());
         selectAllButton.setOnClickListener(v -> toggleSelectAll());
-        addButton.setOnClickListener(v -> addSelectedFiles());
+        addButton.setOnClickListener(v -> {
+            if (mode == BrowserMode.PICK_DIR) returnResult(currentPath, 0);
+            else addSelectedFiles();
+        });
+        if (mode.isPicker()) {
+            fileAdapter.setPickMode(true);
+            selectAllButton.setVisibility(View.GONE);
+            if (mode == BrowserMode.PICK_DIR) addButton.setText("选择此目录");
+            else addButton.setVisibility(View.GONE);
+        }
         clearSelectionButton.setOnClickListener(v -> clearSelection());
         refreshButton.setOnClickListener(v -> loadFiles());
     }
 
     private void initData() {
-        playlistManager = new PlaylistManager(this);
+        if (!mode.isPicker()) playlistManager = new PlaylistManager(this);
         cloudFiles = Repositories.cloudFiles(this);
         if (!cloudFiles.hasToken()) {
             Toast.makeText(this, "未登录，请先登录", Toast.LENGTH_SHORT).show();
@@ -144,37 +167,8 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
 
     /** 在后台线程排序；只有最新一次目录加载的结果会被显示，避免快速切目录时旧结果覆盖。 */
     private void showFileList(long generation, List<FileItem> list) {
-        List<FileItem> files = new ArrayList<>();
-        for (FileItem fileItem : list) {
-            // 只显示目录和音频文件
-            if (fileItem.getIsdir() == 1 || fileItem.isAudioFile()) {
-                files.add(fileItem);
-            }
-        }
-
-        // 在 setFiles 之前先排序，避免 UI 先显示未排序列表再闪烁为排序后的视觉效果
-        // 排序规则：文件夹优先 → 按名称（忽略大小写）
-        java.text.Collator collator = java.text.Collator.getInstance(java.util.Locale.CHINESE);
-        collator.setStrength(java.text.Collator.PRIMARY); // 忽略大小写和音调差异
-        files.sort((f1, f2) -> {
-            // 文件夹始终在前
-            if (f1.getIsdir() != f2.getIsdir()) {
-                return f1.getIsdir() == 1 ? -1 : 1;
-            }
-            int result = collator.compare(f1.getServerFilename(), f2.getServerFilename());
-            // Collator 可能将大小写、音调不同的名称判定为相等，补充稳定的二级排序键，
-            // 避免最终顺序依赖网盘接口返回顺序。
-            if (result == 0) {
-                result = f1.getServerFilename().compareTo(f2.getServerFilename());
-            }
-            if (result == 0) {
-                result = f1.getPath().compareTo(f2.getPath());
-            }
-            if (result == 0) {
-                result = Long.compare(f1.getFsId(), f2.getFsId());
-            }
-            return sortAscending ? result : -result;
-        });
+        // 在 setFiles 之前先过滤排序（文件夹优先 → 名称），避免 UI 先显示未排序列表再闪烁
+        List<FileItem> files = FileListing.filterAndSort(list, mode, sortAscending);
 
         runOnUiThread(() -> {
             if (generation != loadGeneration || isFinishing()) return;
@@ -377,7 +371,14 @@ public class FileBrowserActivity extends AppCompatActivity implements FileAdapte
             // 进入目录
             currentPath = file.getPath();
             loadFiles();
+        } else if (mode == BrowserMode.PICK_JSON) {
+            returnResult(file.getPath(), file.getFsId());
         }
+    }
+
+    private void returnResult(String path, long fsId) {
+        setResult(RESULT_OK, new Intent().putExtra(RESULT_PATH, path).putExtra(RESULT_FS_ID, fsId));
+        finish();
     }
 
     @Override

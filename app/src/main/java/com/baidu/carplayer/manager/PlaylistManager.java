@@ -4,6 +4,8 @@ import android.content.Context;
 
 import android.text.TextUtils;
 
+import com.baidu.carplayer.backup.BackupPlaylist;
+import com.baidu.carplayer.backup.ImportNaming;
 import com.baidu.carplayer.concurrent.AppExecutors;
 import com.baidu.carplayer.database.DatabaseManager;
 import com.baidu.carplayer.model.FileItem;
@@ -497,6 +499,81 @@ public class PlaylistManager {
         return newSongs.size();
     }
     
+    /** 一个已导入列表的结果：最终名称与歌曲数。 */
+    public static final class ImportedPlaylist {
+        public final String id, name;
+        public final int songCount;
+        ImportedPlaylist(String id, String name, int songCount) {
+            this.id = id; this.name = name; this.songCount = songCount;
+        }
+    }
+
+    /**
+     * 在一个事务中导入备份中的列表：始终新建列表，重名时另起“名称 (导入)”；
+     * 歌曲按文件顺序写入；任一步失败整体回滚。成功回调结果为 {@code List<ImportedPlaylist>}。
+     */
+    public void importPlaylists(List<BackupPlaylist> playlists, OnResultListener listener) {
+        diskExecutor.execute(() -> {
+            try {
+                List<ImportedPlaylist> result = importPlaylistsNow(playlists, System.currentTimeMillis());
+                if (listener != null) listener.onSuccess(result);
+            } catch (Exception e) {
+                if (listener != null) listener.onError(e.getMessage());
+            }
+        });
+    }
+
+    /** 同步导入，必须在后台线程调用。 */
+    public List<ImportedPlaylist> importPlaylistsNow(List<BackupPlaylist> playlists, long now) {
+        return databaseManager.getDatabase().runInTransaction(() -> {
+            Set<String> taken = new HashSet<>();
+            for (Playlist existing : databaseManager.getDatabase().playlistDao().getAllPlaylistsSync()) {
+                taken.add(existing.getName());
+            }
+            List<ImportedPlaylist> imported = new ArrayList<>();
+            int n = playlists.size();
+            for (int i = 0; i < n; i++) {
+                BackupPlaylist source = playlists.get(i);
+                String name = ImportNaming.uniqueName(source.getName(), taken);
+                taken.add(name);
+                Playlist playlist = new Playlist(UUID.randomUUID().toString(), name, now + (n - i));
+                databaseManager.getDatabase().playlistDao().insertPlaylist(playlist);
+                List<Song> songs = new ArrayList<>(source.getSongs().size());
+                Set<Long> seen = new HashSet<>();
+                for (Song s : source.getSongs()) {
+                    if (!seen.add(s.getFsId())) continue;
+                    Song copy = new Song(s.getFsId(), playlist.getId(), s.getTitle(), s.getPath(),
+                            s.getSize(), now + songs.size());   // addedTime 递增 → 保持文件顺序
+                    copy.setDuration(s.getDuration());
+                    copy.setArtist(s.getArtist());
+                    copy.setAlbum(s.getAlbum());
+                    copy.setCoverUrl(s.getCoverUrl());
+                    songs.add(copy);
+                }
+                if (!songs.isEmpty()) databaseManager.getDatabase().songDao().insertSongs(songs);
+                databaseManager.getDatabase().playlistDao().recountSongs(playlist.getId());
+                imported.add(new ImportedPlaylist(playlist.getId(), name, songs.size()));
+            }
+            return imported;
+        });
+    }
+
+    /** 当前所有列表名（用于导入预览计算最终名称）。必须在后台线程调用。 */
+    public Set<String> playlistNamesNow() {
+        Set<String> names = new HashSet<>();
+        for (Playlist p : databaseManager.getDatabase().playlistDao().getAllPlaylistsSync()) names.add(p.getName());
+        return names;
+    }
+
+    /** 读取指定列表的歌曲（按播放顺序）。必须在后台线程调用。 */
+    public java.util.Map<String, List<Song>> songsForPlaylistsNow(List<Playlist> playlists) {
+        java.util.Map<String, List<Song>> map = new java.util.HashMap<>();
+        for (Playlist p : playlists) {
+            map.put(p.getId(), databaseManager.getDatabase().songDao().getSongsByPlaylistSync(p.getId()));
+        }
+        return map;
+    }
+
     public interface OnResultListener {
         void onSuccess(Object result);
         void onError(String error);

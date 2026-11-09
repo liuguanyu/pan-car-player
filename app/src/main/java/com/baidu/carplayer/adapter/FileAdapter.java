@@ -16,8 +16,6 @@ import com.baidu.carplayer.model.FileItem;
 import com.baidu.carplayer.selection.SelectionModel;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -33,6 +31,8 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
     private static final SelectionModel.Filter<FileItem> FILES = file -> file.getIsdir() == 0;
     private static final SelectionModel.Filter<FileItem> FOLDERS = file -> file.getIsdir() == 1;
     private OnFileClickListener listener;
+    // 选择模式：点击任何条目都直接回调 onFileClick，不做多选。
+    private boolean pickMode;
 
     public interface OnFileClickListener {
         void onFileClick(FileItem file);
@@ -52,6 +52,10 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
     public FileRow rowAt(int position) {
         FileItem file = files.get(position);
         return FileRow.of(file, selection.isSelected(file));
+    }
+
+    public void setPickMode(boolean pickMode) {
+        this.pickMode = pickMode;
     }
 
     public void setOnFileClickListener(OnFileClickListener listener) {
@@ -119,30 +123,7 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
      * @param ascending true为正序，false为倒序
      */
     public void sortByName(boolean ascending) {
-        java.text.Collator collator = java.text.Collator.getInstance(java.util.Locale.CHINESE);
-        collator.setStrength(java.text.Collator.PRIMARY);
-        Collections.sort(files, new Comparator<FileItem>() {
-            @Override
-            public int compare(FileItem f1, FileItem f2) {
-                // 文件夹始终排在前面
-                if (f1.getIsdir() != f2.getIsdir()) {
-                    return f1.getIsdir() == 1 ? -1 : 1;
-                }
-                
-                // 同为文件夹或同为文件时，按文件名排序（中文友好）
-                int result = collator.compare(f1.getServerFilename(), f2.getServerFilename());
-                if (result == 0) {
-                    result = f1.getServerFilename().compareTo(f2.getServerFilename());
-                }
-                if (result == 0) {
-                    result = f1.getPath().compareTo(f2.getPath());
-                }
-                if (result == 0) {
-                    result = Long.compare(f1.getFsId(), f2.getFsId());
-                }
-                return ascending ? result : -result;
-            }
-        });
+        files.sort(com.baidu.carplayer.browser.FileListing.comparator(ascending));
         selection.setItems(files);
         notifyDataSetChanged();
     }
@@ -166,7 +147,7 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
                 int position = getAdapterPosition();
                 if (position != RecyclerView.NO_POSITION && listener != null) {
                     FileItem file = files.get(position);
-                    if (rowAt(position).clickAction() == FileRow.Action.OPEN) {
+                    if (pickMode || rowAt(position).clickAction() == FileRow.Action.OPEN) {
                         listener.onFileClick(file);
                     } else {
                         toggleSelection(file);
@@ -176,7 +157,7 @@ public class FileAdapter extends RecyclerView.Adapter<FileAdapter.FileViewHolder
             
             itemView.setOnLongClickListener(v -> {
                 int position = getAdapterPosition();
-                if (position != RecyclerView.NO_POSITION && listener != null) {
+                if (!pickMode && position != RecyclerView.NO_POSITION && listener != null) {
                     FileItem file = files.get(position);
                     if (rowAt(position).longClickAction() == FileRow.Action.TOGGLE) {
                         toggleSelection(file);

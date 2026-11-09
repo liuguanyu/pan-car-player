@@ -15,4 +15,10 @@ public final class Repositories {
         return new CloudFileRepository(RetrofitClient.getInstance().create(BaiduPanService.class),
                 auth::getAccessToken);
     }
+
+    public static CloudBackupRepository cloudBackups(Context context) {
+        BaiduAuthService auth = BaiduAuthService.getInstance(context);
+        return new CloudBackupRepository(RetrofitClient.getInstance().create(BaiduPanService.class),
+                auth::getAccessToken);
+    }
 }

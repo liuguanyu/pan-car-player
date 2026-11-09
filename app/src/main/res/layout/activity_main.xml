@@ -35,6 +35,16 @@
             app:tint="@android:color/white" />
 
         <ImageButton
+            android:id="@+id/transfer_button"
+            android:layout_width="@dimen/icon_button_size"
+            android:layout_height="@dimen/icon_button_size"
+            android:src="@android:drawable/ic_menu_more"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="导入/导出列表"
+            android:layout_marginEnd="@dimen/spacing_small"
+            app:tint="@android:color/white" />
+
+        <ImageButton
             android:id="@+id/now_playing_button"
             android:layout_width="@dimen/icon_button_size"
             android:layout_height="@dimen/icon_button_size"

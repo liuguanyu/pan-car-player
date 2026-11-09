@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.adapter.PlaylistAdapter;
+import com.baidu.carplayer.backup.PlaylistTransferController;
 import com.baidu.carplayer.manager.PlaylistManager;
 import com.baidu.carplayer.ui.LoadGate;
 import com.baidu.carplayer.model.Playlist;
@@ -60,6 +61,7 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
     private boolean serviceBound = false;
     
     private CloudFileRepository cloudFiles;
+    private PlaylistTransferController transfer;
 
     private ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -86,6 +88,8 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
 
         initViews();
         initData();
+        // 必须在 onCreate 中创建：内部注册页面结果回调
+        transfer = new PlaylistTransferController(this, playlistManager, this::loadPlaylists);
         
         // 服务绑定放在 onStart，与 onStop 配对。
     }
@@ -144,6 +148,7 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
         // 设置按钮点击事件
         addPlaylistButton.setOnClickListener(v -> showCreatePlaylistDialog());
         nowPlayingButton.setOnClickListener(v -> openCurrentPlayer());
+        findViewById(R.id.transfer_button).setOnClickListener(v -> transfer.showMenu());
         
         findViewById(R.id.add_playlist_empty_button).setOnClickListener(v -> showCreatePlaylistDialog());
     }
