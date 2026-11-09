@@ -2,6 +2,16 @@ plugins {
     id 'com.android.application'
 }
 
+// 正式包签名：从 Gradle 属性或本地 .signing/release.properties 读取（不入库）
+def signingProps = new Properties()
+def signingFile = rootProject.file('.signing/release.properties')
+if (signingFile.isFile()) {
+    signingFile.withInputStream { signingProps.load(it) }
+}
+def releaseProp = { String name -> project.findProperty(name) ?: signingProps.getProperty(name) }
+def hasReleaseSigning = ['RELEASE_STORE_FILE', 'RELEASE_STORE_PASSWORD', 'RELEASE_KEY_ALIAS', 'RELEASE_KEY_PASSWORD']
+        .every { releaseProp(it) }
+
 android {
     namespace 'com.baidu.carplayer'
     compileSdk 33
@@ -10,17 +20,34 @@ android {
         applicationId "com.baidu.carplayer"
         minSdk 29
         targetSdk 33
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"
         
         multiDexEnabled true
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseProp('RELEASE_STORE_FILE'))
+                storePassword releaseProp('RELEASE_STORE_PASSWORD')
+                keyAlias releaseProp('RELEASE_KEY_ALIAS')
+                keyPassword releaseProp('RELEASE_KEY_PASSWORD')
+                // 车机兼容：V1 + V2 双签名
+                enableV1Signing true
+                enableV2Signing true
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }

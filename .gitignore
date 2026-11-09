@@ -90,3 +90,8 @@ lint-results*.html
 
 # 敏感配置文件 - 不要提交到版本控制系统
 app/src/main/java/com/baidu/carplayer/config/BaiduConfig.java
+
+# Release signing (keystore + passwords), never commit
+.signing/
+*.jks
+*.keystore
