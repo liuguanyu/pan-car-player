@@ -18,7 +18,7 @@ android {
 
     defaultConfig {
         applicationId "com.baidu.carplayer"
-        minSdk 29
+        minSdk 28
         targetSdk 33
         versionCode 2
         versionName "1.1"
@@ -134,4 +134,40 @@ dependencies {
     testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}
+// 车机兼容：AGP 在 minSdk >= 24 时会忽略 enableV1Signing，只出 v2。
+// 部分车机安装器需要 V1(JAR)+V2 双签名（与可安装的 car-radio 包一致），
+// 因此 assembleRelease 后用 apksigner 重新签出 *-car.apk。
+def carApkTask = tasks.register('signCarApk') {
+    group = 'build'
+    description = 'Re-sign release APK with V1+V2 for car head units'
+    onlyIf { hasReleaseSigning }
+    doLast {
+        def outDir = layout.buildDirectory.dir('outputs/apk/release').get().asFile
+        def src = new File(outDir, 'app-release.apk')
+        def dst = new File(outDir, "app-release-car-v${android.defaultConfig.versionName}.apk")
+        def sdkDir = android.sdkDirectory
+        def apksigner = new File(sdkDir, "build-tools/${android.buildToolsVersion}/apksigner")
+        if (!apksigner.exists()) {
+            throw new GradleException("apksigner not found: ${apksigner}")
+        }
+        exec {
+            commandLine apksigner.absolutePath, 'sign',
+                    '--ks', file(releaseProp('RELEASE_STORE_FILE')).absolutePath,
+                    '--ks-key-alias', releaseProp('RELEASE_KEY_ALIAS'),
+                    '--ks-pass', 'env:CAR_KS_PASS', '--key-pass', 'env:CAR_KEY_PASS',
+                    '--v1-signing-enabled', 'true', '--v2-signing-enabled', 'true',
+                    '--v3-signing-enabled', 'false', '--min-sdk-version', '23',
+                    '--out', dst.absolutePath, src.absolutePath
+            environment 'CAR_KS_PASS', releaseProp('RELEASE_STORE_PASSWORD')
+            environment 'CAR_KEY_PASS', releaseProp('RELEASE_KEY_PASSWORD')
+        }
+        exec {
+            commandLine apksigner.absolutePath, 'verify', '--min-sdk-version', '23', dst.absolutePath
+        }
+        println "Car APK (V1+V2): ${dst}"
+    }
+}
+afterEvaluate {
+    tasks.named('assembleRelease').configure { finalizedBy carApkTask }
 }
