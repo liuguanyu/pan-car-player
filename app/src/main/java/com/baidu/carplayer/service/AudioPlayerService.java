@@ -85,7 +85,21 @@ public class AudioPlayerService extends Service {
     private DownloadUrlRepository downloadUrlRepository;
     @Nullable
     private DownloadUrlRepository.Cancellable pendingUrlRequest;
+    private DownloadUrlRepository.Cancellable prefetchUrlRequest;
+    private long prefetchedFsId = -1;
     private boolean destroyed = false;
+
+    /**
+     * 队列变更的唯一反应点：取消旧预取并按当前播放状态重新预取。
+     * 由 PlaybackQueue 的状态变更（列表替换/换模式/定位/next 推进）驱动，
+     * 业务代码不再逐处手动维护预取。
+     */
+    private final PlaybackQueue.ChangeListener prefetchQueueListener = () -> {
+        cancelPrefetch();
+        if (isPlaying()) {
+            prefetchNextUrl();
+        }
+    };
     // 最近一次加载/解码失败；之后的 PLAY 需要重新获取下载地址，而不是恢复旧媒体项。
     private boolean loadFailed = false;
     
@@ -169,6 +183,7 @@ public class AudioPlayerService extends Service {
                     RetrofitClient.getPanApiInstance().create(BaiduPanService.class), authService);
         }
         persistence = PlaybackPersistence.from(this);
+        queue.addChangeListener(prefetchQueueListener);
         initializePlayer();
         notifier = new PlaybackNotifier(this);
         notifier.createChannel();
@@ -195,6 +210,7 @@ public class AudioPlayerService extends Service {
                 publishPlaybackState();
                 if (isPlaying) {
                     startProgressPublish();
+                    prefetchNextUrl(); // 真正出声时才预取下一首（切歌期间播放器在缓冲，不会误触发）
                 } else {
                     stopProgressPublish();
                 }
@@ -215,9 +231,15 @@ public class AudioPlayerService extends Service {
                 }
                 
                 if (playbackState == Player.STATE_ENDED) {
-                    // 播放结束，自动播放下一首，并保存状态
+                    // 播放结束，并保存状态
                     savePlaybackState();
-                    playNext();
+                    if (queue.getMode() == PlaybackQueue.Mode.SINGLE) {
+                        // 单曲循环：重播当前歌（URL 已缓存，开销只剩缓冲）
+                        Log.d(TAG, "单曲循环：重播当前歌曲");
+                        playAtPosition(queue.getIndex());
+                    } else {
+                        playNext();
+                    }
                 }
 
                 publishPlaybackState();
@@ -540,7 +562,14 @@ public class AudioPlayerService extends Service {
         Log.d(TAG, "位置: " + position);
         Log.d(TAG, "seekToPosition: " + seekToPosition);
         publishPlaybackState();
-        playFromBaiduPan(song, requestGeneration);
+        String cachedUrl = downloadUrlRepository.getCachedUrl(song.getFsId());
+        if (cachedUrl != null) {
+            // 缓存命中：零 API 往返，立即开始缓冲
+            Log.d(TAG, "下载链接缓存命中，直接播放");
+            play(cachedUrl);
+        } else {
+            playFromBaiduPan(song, requestGeneration);
+        }
         
         if (saveState) {
             savePlaybackState(); // 保存播放状态
@@ -587,6 +616,57 @@ public class AudioPlayerService extends Service {
                 notifyPlayerError(new PlaybackException(message, cause, PlaybackException.ERROR_CODE_UNSPECIFIED));
             }
         });
+    }
+
+    /**
+     * 预取"下一首"的下载地址（队列逻辑决定目标，缓存按 fsId 命中）。
+     * 猜错了零损失（缓存条目留在内存）；猜对了切歌省一个 API 往返。
+     * 暂停时不预取，省流量。
+     */
+    private void prefetchNextUrl() {
+        if (destroyed || !isPlaying()) {
+            return;
+        }
+        int target = queue.peekNext();
+        if (target == PlaybackQueue.STAY) {
+            return;
+        }
+        com.baidu.carplayer.model.Song song = queue.at(target);
+        if (song == null) {
+            return;
+        }
+        long fsId = song.getFsId();
+        if (downloadUrlRepository.getCachedUrl(fsId) != null) {
+            return; // 已有缓存，无需预取
+        }
+        if (fsId == prefetchedFsId && prefetchUrlRequest != null) {
+            return; // 同一首的预取还在路上
+        }
+        if (prefetchUrlRequest != null) {
+            prefetchUrlRequest.cancel();
+        }
+        prefetchedFsId = fsId;
+        Log.d(TAG, "预取下一首下载链接: " + song.getTitle());
+        prefetchUrlRequest = downloadUrlRepository.resolve(fsId, new DownloadUrlRepository.Callback() {
+            @Override
+            public void onSuccess(String playableUrl) {
+                // 静默成功：结果已进仓库缓存，切歌时直接用
+            }
+
+            @Override
+            public void onError(String message, boolean authExpired, @Nullable Throwable cause) {
+                // 静默失败：下次真切到它时会正常请求
+            }
+        });
+    }
+
+    /** 取消未完成的预取（切歌、停止、销毁时）。 */
+    private void cancelPrefetch() {
+        if (prefetchUrlRequest != null) {
+            prefetchUrlRequest.cancel();
+            prefetchUrlRequest = null;
+        }
+        prefetchedFsId = -1;
     }
 
     /**
@@ -967,6 +1047,8 @@ public class AudioPlayerService extends Service {
     
     @Override
     public void onDestroy() {
+        queue.removeChangeListener(prefetchQueueListener);
+        cancelPrefetch();
         // 先使所有异步播放回调失效，再释放播放器。
         destroyed = true;
         requestTracker.close();

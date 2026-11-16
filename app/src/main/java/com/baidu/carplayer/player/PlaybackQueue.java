@@ -40,6 +40,7 @@ public final class PlaybackQueue {
         if (index >= this.songs.size()) {
             index = Math.max(0, this.songs.size() - 1);
         }
+        notifyChanged();
     }
 
     public List<Song> getSongs() {
@@ -48,6 +49,32 @@ public final class PlaybackQueue {
 
     public int size() {
         return songs.size();
+    }
+
+    /**
+     * 队列变更监听：列表替换、模式切换、定位（含 next/previous 的推进）后回调。
+     * 只用于提示"预取下一首"等跟随队列的旁路功能，监听器不得反向修改队列。
+     */
+    public interface ChangeListener {
+        void onQueueChanged();
+    }
+
+    private final List<ChangeListener> changeListeners = new ArrayList<>();
+
+    public void addChangeListener(ChangeListener listener) {
+        changeListeners.add(listener);
+    }
+
+    public void removeChangeListener(ChangeListener listener) {
+        changeListeners.remove(listener);
+    }
+
+    private void notifyChanged() {
+        // 拷贝遍历：监听器回调可能再次触发队列变更（如 Service 切歌），避免重复通知与 ConcurrentModification
+        List<ChangeListener> snapshot = new ArrayList<>(changeListeners);
+        for (ChangeListener listener : snapshot) {
+            listener.onQueueChanged();
+        }
     }
 
     public boolean isEmpty() {
@@ -72,6 +99,7 @@ public final class PlaybackQueue {
             return false;
         }
         index = position;
+        notifyChanged();
         return true;
     }
 
@@ -91,6 +119,7 @@ public final class PlaybackQueue {
         if (this.mode == Mode.RANDOM) {
             generateShuffleOrder();
         }
+        notifyChanged();
     }
 
     /**
@@ -98,6 +127,15 @@ public final class PlaybackQueue {
      * 并避免新序列以刚播完的那首开头。返回前已经把内部下标更新为目标。
      */
     public int next() {
+        int oldIndex = index;
+        int result = doNext();
+        if (result != STAY && result != oldIndex) {
+            notifyChanged();
+        }
+        return result;
+    }
+
+    private int doNext() {
         if (songs.isEmpty()) {
             return STAY;
         }
@@ -128,8 +166,44 @@ public final class PlaybackQueue {
         }
     }
 
+    /**
+     * 下一首的下标预览（不改变任何状态），供预取下一首下载地址使用：
+     * 顺序＝+1 环绕；单曲＝当前歌（为播完重播预取）；随机＝洗牌序列的下一个，
+     * 序列尚未生成或已到轮次末尾时返回 {@link #STAY}（无法可靠预测）。
+     */
+    public int peekNext() {
+        if (songs.isEmpty()) {
+            return STAY;
+        }
+        switch (mode) {
+            case SINGLE:
+                return index;
+            case RANDOM:
+                if (shuffleOrder == null || shuffleOrder.isEmpty()) {
+                    return STAY;
+                }
+                int pos = shufflePosition + 1;
+                if (pos >= shuffleOrder.size()) {
+                    return STAY; // 下一轮要重新洗牌，无法预测
+                }
+                return shuffleOrder.get(pos);
+            case ORDER:
+            default:
+                return (index + 1) % songs.size();
+        }
+    }
+
     /** 上一首的目标下标；语义与 {@link #next()} 对称。 */
     public int previous() {
+        int oldIndex = index;
+        int result = doPrevious();
+        if (result != STAY && result != oldIndex) {
+            notifyChanged();
+        }
+        return result;
+    }
+
+    private int doPrevious() {
         if (songs.isEmpty()) {
             return STAY;
         }

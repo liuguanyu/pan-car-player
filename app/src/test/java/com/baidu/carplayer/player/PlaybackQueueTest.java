@@ -123,6 +123,100 @@ public class PlaybackQueueTest {
     }
 
     @Test
+    public void peekNextFollowsOrderModeWrap() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setSongs(songs(3));
+        assertEquals(1, q.peekNext());
+        q.moveTo(2);
+        assertEquals("末尾环绕到第一首", 0, q.peekNext());
+    }
+
+    @Test
+    public void peekNextInSingleModeIsCurrentSong() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setSongs(songs(3));
+        q.moveTo(1);
+        q.setMode(PlaybackQueue.Mode.SINGLE);
+        assertEquals(1, q.peekNext());
+    }
+
+    @Test
+    public void peekNextInRandomModeIsStableAndDoesNotConsume() {
+        PlaybackQueue q = new PlaybackQueue(new Random(7));
+        q.setSongs(songs(6));
+        q.setMode(PlaybackQueue.Mode.RANDOM);
+        // 第一次 next 生成洗牌序列并落到序列首位
+        int first = q.next();
+        int peeked = q.peekNext();
+        // 连续 peek 稳定
+        assertEquals(peeked, q.peekNext());
+        // peek 不消耗序列：下次 next 得到的正是 peek 的结果
+        assertEquals(peeked, q.next());
+    }
+
+    @Test
+    public void peekNextAtRandomRoundEndIsStay() {
+        PlaybackQueue q = new PlaybackQueue(new Random(3));
+        q.setSongs(songs(3));
+        q.setMode(PlaybackQueue.Mode.RANDOM);
+        // 洗牌序列以当前歌为首位：两次 next 后到达轮次末尾，
+        // 下一轮需要重新洗牌，无法预测
+        q.next();
+        q.next();
+        assertEquals(PlaybackQueue.STAY, q.peekNext());
+    }
+
+    @Test
+    public void changeListenerFiresOnMutations() {
+        PlaybackQueue q = new PlaybackQueue();
+        int[] count = {0};
+        q.addChangeListener(() -> count[0]++);
+        q.setSongs(songs(3));
+        assertEquals("setSongs", 1, count[0]);
+        q.moveTo(1);
+        assertEquals("moveTo", 2, count[0]);
+        q.setMode(PlaybackQueue.Mode.SINGLE);
+        assertEquals("setMode", 3, count[0]);
+        assertEquals(PlaybackQueue.STAY, q.next()); // 单曲返回 STAY，无通知
+        assertEquals("SINGLE next 不推进不通知", 3, count[0]);
+        q.setMode(PlaybackQueue.Mode.ORDER);
+        assertEquals("setMode ORDER", 4, count[0]);
+        q.next();
+        assertEquals("next 推进", 5, count[0]);
+    }
+
+    @Test
+    public void changeListenerNotifiedWhenNextAdvances() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setSongs(songs(3));
+        int[] count = {0};
+        q.addChangeListener(() -> count[0]++);
+        q.setMode(PlaybackQueue.Mode.ORDER);
+        int before = count[0];
+        q.next();
+        assertEquals(1, count[0] - before);
+        q.previous();
+        assertEquals(2, count[0] - before);
+    }
+
+    @Test
+    public void listenerSurvivesNestedMutation() {
+        // 监听器回调中再改队列（Service 切歌的真实场景），不得 ConcurrentModification
+        PlaybackQueue q = new PlaybackQueue();
+        q.setSongs(songs(3));
+        final int[] depth = {0};
+        q.addChangeListener(() -> {
+            if (depth[0] == 0) {
+                depth[0]++;
+                q.moveTo(1); // 嵌套变更
+                depth[0]--;
+            }
+        });
+        q.moveTo(2); // 应正常完成
+        assertEquals(1, q.getIndex());
+    }
+
+    @Test
     public void emptyQueueIsSafe() {
         PlaybackQueue q = new PlaybackQueue();
         assertTrue(q.isEmpty());

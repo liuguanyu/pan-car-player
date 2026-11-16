@@ -15,6 +15,14 @@ public interface DownloadUrlRepository {
     /** 返回可取消句柄；调用方切歌或销毁时应调用 cancel。 */
     Cancellable resolve(long fsId, Callback callback);
 
+    /**
+     * 缓存的可播放 URL；无缓存或已过期返回 null。
+     * 默认无缓存，返回 null。
+     */
+    default String getCachedUrl(long fsId) {
+        return null;
+    }
+
     interface Cancellable {
         void cancel();
     }
