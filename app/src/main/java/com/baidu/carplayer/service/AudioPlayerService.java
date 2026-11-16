@@ -7,7 +7,6 @@ import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.os.Binder;
-import android.os.Build;
 import android.os.IBinder;
 import android.os.Looper;
 import android.support.v4.media.session.MediaSessionCompat;
@@ -85,21 +84,9 @@ public class AudioPlayerService extends Service {
     private DownloadUrlRepository downloadUrlRepository;
     @Nullable
     private DownloadUrlRepository.Cancellable pendingUrlRequest;
-    private DownloadUrlRepository.Cancellable prefetchUrlRequest;
-    private long prefetchedFsId = -1;
     private boolean destroyed = false;
-
-    /**
-     * 队列变更的唯一反应点：取消旧预取并按当前播放状态重新预取。
-     * 由 PlaybackQueue 的状态变更（列表替换/换模式/定位/next 推进）驱动，
-     * 业务代码不再逐处手动维护预取。
-     */
-    private final PlaybackQueue.ChangeListener prefetchQueueListener = () -> {
-        cancelPrefetch();
-        if (isPlaying()) {
-            prefetchNextUrl();
-        }
-    };
+    /** 下一首 URL 预取：订阅队列变更与出声事件，见 NextUpPreloader。 */
+    private com.baidu.carplayer.playback.NextUpPreloader nextUpPreloader;
     // 最近一次加载/解码失败；之后的 PLAY 需要重新获取下载地址，而不是恢复旧媒体项。
     private boolean loadFailed = false;
     
@@ -183,7 +170,8 @@ public class AudioPlayerService extends Service {
                     RetrofitClient.getPanApiInstance().create(BaiduPanService.class), authService);
         }
         persistence = PlaybackPersistence.from(this);
-        queue.addChangeListener(prefetchQueueListener);
+        nextUpPreloader = new com.baidu.carplayer.playback.NextUpPreloader(
+                queue, downloadUrlRepository);
         initializePlayer();
         notifier = new PlaybackNotifier(this);
         notifier.createChannel();
@@ -210,10 +198,11 @@ public class AudioPlayerService extends Service {
                 publishPlaybackState();
                 if (isPlaying) {
                     startProgressPublish();
-                    prefetchNextUrl(); // 真正出声时才预取下一首（切歌期间播放器在缓冲，不会误触发）
                 } else {
                     stopProgressPublish();
                 }
+                // 真正出声时才启用预取（切歌期间播放器在缓冲，不会误触发）
+                nextUpPreloader.setEnabled(isPlaying);
             }
 
             @Override
@@ -409,91 +398,41 @@ public class AudioPlayerService extends Service {
             Log.w(TAG, "播放器已销毁，忽略播放请求");
             return;
         }
-        Log.d(TAG, "========== 开始播放音频 ==========");
-        Log.d(TAG, "URL: " + LogRedactor.redact(url));
+        Log.d(TAG, "开始播放音频 URL=" + LogRedactor.redact(url));
         
-        // 检测文件扩展名以识别音频格式
+        // ALAC/m4a 依赖硬件解码器，车机上可能解码失败，留一条警告便于排查。
         String fileExtension = "";
         if (url.contains(".")) {
-            int lastDotIndex = url.lastIndexOf(".");
-            fileExtension = url.substring(lastDotIndex + 1).toLowerCase();
+            fileExtension = url.substring(url.lastIndexOf('.') + 1).toLowerCase();
         }
-        Log.d(TAG, "检测到音频格式: " + fileExtension);
-        
-        if (fileExtension.equals("alac") || fileExtension.equals("m4a")) {
-            Log.w(TAG, "⚠️ ALAC格式文件");
-            Log.w(TAG, "⚠️ 播放取决于设备硬件解码器支持");
-            Log.w(TAG, "⚠️ 如果无法播放，建议转换为FLAC或AAC格式");
-            Log.w(TAG, "⚠️ 模拟器可能不支持ALAC硬件解码");
+        if (fileExtension.equals("alac")) {
+            Log.w(TAG, "ALAC 格式依赖硬件解码器，无法播放时建议转换为 FLAC/AAC");
         }
         
-        // 检查系统音频输出状态
+        // 系统媒体音量为 0 时用户会以为"没声音"，保留错误日志。
         AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        if (am != null) {
-            int musicVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC);
-            int maxVolume = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-            Log.d(TAG, "系统媒体音量: " + musicVolume + "/" + maxVolume);
-            if (musicVolume == 0) {
-                Log.e(TAG, "✗ 系统媒体音量为0，无法听到声音！");
-            }
-            
-            // 检查音频输出设备
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                android.media.AudioDeviceInfo[] devices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
-                Log.d(TAG, "音频输出设备数量: " + devices.length);
-                for (android.media.AudioDeviceInfo device : devices) {
-                    Log.d(TAG, "  - " + device.getProductName() + " (类型: " + device.getType() + ")");
-                }
-            }
+        if (am != null && am.getStreamVolume(AudioManager.STREAM_MUSIC) == 0) {
+            Log.e(TAG, "系统媒体音量为 0，无法听到声音");
         }
         
         // 请求音频焦点后再播放
         if (requestAudioFocus()) {
-            Log.d(TAG, "✓ 音频焦点获取成功");
-            
             loadFailed = false;
-            MediaItem mediaItem = MediaItem.fromUri(url);
-            exoPlayer.setMediaItem(mediaItem);
-            
-            Log.d(TAG, "准备播放器...");
+            exoPlayer.setMediaItem(MediaItem.fromUri(url));
             
             // 恢复命令的 seek 和 autoplay 意图由同一 generation 绑定。
             PlaybackCommand command = requestTracker.current();
             if (command != null && command.hasSeekPosition()) {
-                Log.d(TAG, "有待处理的seek操作，等待准备完成...");
                 exoPlayer.setPlayWhenReady(false);
             } else {
-                boolean autoplay = command == null || command.isPlayWhenReady();
-                Log.d(TAG, autoplay ? "开始播放..." : "加载完成后保持暂停");
-                exoPlayer.setPlayWhenReady(autoplay);
+                exoPlayer.setPlayWhenReady(command == null || command.isPlayWhenReady());
             }
-            
             exoPlayer.prepare();
-            
-            // 检查音量设置
-            float volume = exoPlayer.getVolume();
-            Log.d(TAG, "播放器音量: " + volume);
-            if (volume < 0.5f) {
-                Log.w(TAG, "⚠️ 播放器音量较低，可能影响听感");
-            }
-            
-            // 检查设备音量
-            // 注意：Media3 ExoPlayer 没有 getDeviceVolume() 方法
-            // 如需获取设备音量，应使用 AudioManager
-            Log.d(TAG, "设备音量: 通过 AudioManager 已在上方输出");
-            
-            // 添加播放状态检查
-            Log.d(TAG, "========== 播放启动检查 ==========");
-            Log.d(TAG, "播放状态: " + (exoPlayer.getPlayWhenReady() ? "播放中" : "已暂停"));
-            Log.d(TAG, "播放器状态: " + exoPlayer.getPlaybackState());
-            Log.d(TAG, "==================================");
-            
             updateMediaSessionState();
             startForeground(NOTIFICATION_ID, notifier.build(mediaSession, queue.current(), isPlaying()));
-            Log.d(TAG, "✓ 音频播放已启动");
-            Log.d(TAG, "==================================");
+            Log.d(TAG, "音频播放已启动");
         } else {
-            Log.e(TAG, "✗ 无法获取音频焦点，播放被阻止");
+            Log.e(TAG, "无法获取音频焦点，播放被阻止");
         }
     }
     
@@ -616,57 +555,6 @@ public class AudioPlayerService extends Service {
                 notifyPlayerError(new PlaybackException(message, cause, PlaybackException.ERROR_CODE_UNSPECIFIED));
             }
         });
-    }
-
-    /**
-     * 预取"下一首"的下载地址（队列逻辑决定目标，缓存按 fsId 命中）。
-     * 猜错了零损失（缓存条目留在内存）；猜对了切歌省一个 API 往返。
-     * 暂停时不预取，省流量。
-     */
-    private void prefetchNextUrl() {
-        if (destroyed || !isPlaying()) {
-            return;
-        }
-        int target = queue.peekNext();
-        if (target == PlaybackQueue.STAY) {
-            return;
-        }
-        com.baidu.carplayer.model.Song song = queue.at(target);
-        if (song == null) {
-            return;
-        }
-        long fsId = song.getFsId();
-        if (downloadUrlRepository.getCachedUrl(fsId) != null) {
-            return; // 已有缓存，无需预取
-        }
-        if (fsId == prefetchedFsId && prefetchUrlRequest != null) {
-            return; // 同一首的预取还在路上
-        }
-        if (prefetchUrlRequest != null) {
-            prefetchUrlRequest.cancel();
-        }
-        prefetchedFsId = fsId;
-        Log.d(TAG, "预取下一首下载链接: " + song.getTitle());
-        prefetchUrlRequest = downloadUrlRepository.resolve(fsId, new DownloadUrlRepository.Callback() {
-            @Override
-            public void onSuccess(String playableUrl) {
-                // 静默成功：结果已进仓库缓存，切歌时直接用
-            }
-
-            @Override
-            public void onError(String message, boolean authExpired, @Nullable Throwable cause) {
-                // 静默失败：下次真切到它时会正常请求
-            }
-        });
-    }
-
-    /** 取消未完成的预取（切歌、停止、销毁时）。 */
-    private void cancelPrefetch() {
-        if (prefetchUrlRequest != null) {
-            prefetchUrlRequest.cancel();
-            prefetchUrlRequest = null;
-        }
-        prefetchedFsId = -1;
     }
 
     /**
@@ -1047,8 +935,7 @@ public class AudioPlayerService extends Service {
     
     @Override
     public void onDestroy() {
-        queue.removeChangeListener(prefetchQueueListener);
-        cancelPrefetch();
+        nextUpPreloader.dispose();
         // 先使所有异步播放回调失效，再释放播放器。
         destroyed = true;
         requestTracker.close();
