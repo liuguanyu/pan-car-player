@@ -11,14 +11,16 @@ public final class VisualizerManager implements VisualizerCoordinator.Capture {
     /** 节拍跟踪：在采集线程喂入 FFT，小羊在 UI 线程读取拍位置，让舞步与音乐同步。 */
     private final BeatTracker beats = new BeatTracker();
     private final DancingSheepVisualizer sheep = new DancingSheepVisualizer();
+    private final ParticlesVisualizer particles = new ParticlesVisualizer();
     private final AudioVisualizer[] effects = {new BarsVisualizer(), new WaveVisualizer(),
-            new ParticlesVisualizer(), sheep};
+            particles, sheep};
 
     public VisualizerManager() {
         sheep.setBeatSource(new DancingSheepVisualizer.BeatSource() {
             @Override public double beatPosition(long nowMs) { return beats.beatPosition(nowMs); }
             @Override public float confidence(long nowMs) { return beats.confidence(nowMs); }
         });
+        particles.setTempoSource(beats::periodMs);
     }
     private AudioVisualizer active = effects[0];
     private Visualizer capture;
