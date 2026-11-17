@@ -23,6 +23,10 @@ public interface DownloadUrlRepository {
         return null;
     }
 
+    /** 作废指定歌曲的缓存链接（下载返回 401/403 时用于强制重取）。默认无操作。 */
+    default void evict(long fsId) {
+    }
+
     interface Cancellable {
         void cancel();
     }

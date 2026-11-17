@@ -117,6 +117,13 @@ public final class BaiduDownloadUrlRepository implements DownloadUrlRepository {
         }
     }
 
+    @Override
+    public void evict(long fsId) {
+        synchronized (cache) {
+            cache.remove(fsId);
+        }
+    }
+
     private void cachePut(long fsId, String url) {
         synchronized (cache) {
             cache.remove(fsId);

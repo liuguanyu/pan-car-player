@@ -85,6 +85,8 @@ public class AudioPlayerService extends Service {
     @Nullable
     private DownloadUrlRepository.Cancellable pendingUrlRequest;
     private boolean destroyed = false;
+    /** 当前这首加载是否已做过一次"作废缓存重取"重试，防止 403 死循环。 */
+    private boolean urlRetriedForCurrentLoad = false;
     /** 下一首 URL 预取：订阅队列变更与出声事件，见 NextUpPreloader。 */
     private com.baidu.carplayer.playback.NextUpPreloader nextUpPreloader;
     // 最近一次加载/解码失败；之后的 PLAY 需要重新获取下载地址，而不是恢复旧媒体项。
@@ -253,15 +255,12 @@ public class AudioPlayerService extends Service {
             
             @Override
             public void onPlayerError(@NonNull PlaybackException error) {
-                Log.e(TAG, "========== 播放错误 ==========");
-                Log.e(TAG, "错误代码: " + error.errorCode);
-                Log.e(TAG, "错误信息: " + error.getMessage());
-                Log.e(TAG, "错误类型: " + error.getClass().getSimpleName());
-                if (error.getCause() != null) {
-                    Log.e(TAG, "根本原因: " + error.getCause().getMessage());
-                }
-                Log.e(TAG, "================================");
+                Log.e(TAG, "播放错误: code=" + error.errorCode + ", msg=" + error.getMessage());
                 
+                // CDN 401/403：链接可能被提前吊销，作废缓存重取新链接自动重试一次
+                if (tryRecoverFromHttpAuthError(error)) {
+                    return;
+                }
                 notifyPlayerError(error);
             }
             
@@ -492,6 +491,7 @@ public class AudioPlayerService extends Service {
         if (!queue.moveTo(position)) {
             return;
         }
+        urlRetriedForCurrentLoad = false;
         com.baidu.carplayer.model.Song song = queue.current();
         final long requestGeneration = requestTracker.begin(song.getId(), seekToPosition, true).getRequestId();
         // 切歌后立即停掉旧歌：否则在新地址返回前（弱网/断网时可能很久）
@@ -528,6 +528,43 @@ public class AudioPlayerService extends Service {
     /**
      * 从百度网盘播放歌曲。requestGeneration 用于丢弃过期网络回调，切歌时取消上一请求。
      */
+    /**
+     * CDN 返回 401/403 时自动恢复：作废该歌的链接缓存并重新解析播放。
+     * 每次歌曲加载只重试一次，避免缓存链接持续无效时无限循环。
+     *
+     * @return true 表示已触发重试（错误不再向页面发布）
+     */
+    private boolean tryRecoverFromHttpAuthError(PlaybackException error) {
+        int code = httpStatusCode(error);
+        if (code != 401 && code != 403) {
+            return false;
+        }
+        if (urlRetriedForCurrentLoad) {
+            return false;
+        }
+        com.baidu.carplayer.model.Song song = getCurrentSong();
+        if (song == null || destroyed) {
+            return false;
+        }
+        urlRetriedForCurrentLoad = true;
+        Log.w(TAG, "CDN 返回 " + code + "，作废链接缓存并重取: " + song.getTitle());
+        downloadUrlRepository.evict(song.getFsId());
+        playAtPosition(queue.getIndex(), true, null);
+        return true;
+    }
+
+    /** 从播放异常中提取 HTTP 状态码；不是 HTTP 错误时返回 -1。 */
+    private static int httpStatusCode(@Nullable PlaybackException error) {
+        Throwable cause = error != null ? error.getCause() : null;
+        while (cause != null) {
+            if (cause instanceof androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                return ((androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) cause).responseCode;
+            }
+            cause = cause.getCause();
+        }
+        return -1;
+    }
+
     private void playFromBaiduPan(com.baidu.carplayer.model.Song song, long requestGeneration) {
         Log.d(TAG, "准备播放歌曲: " + song.getTitle() + ", fsId=" + song.getFsId());
         if (pendingUrlRequest != null) {
