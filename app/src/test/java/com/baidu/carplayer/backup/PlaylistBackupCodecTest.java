@@ -48,6 +48,44 @@ public class PlaylistBackupCodecTest {
         assertEquals(0, b.totalSkipped());
     }
 
+    @Test public void parsesSinglePlaylistObjectForm() throws Exception {
+        // Web 端单列表导出写 "playlist"（单数、对象），而不是 "playlists"（数组）
+        String json = "{"
+                + "\"version\":\"1.0\",\"export_time\":\"2026-11-13T07:04:58.569Z\","
+                + "\"playlist\":{\"name\":\"我们动画片里面的好朋友\","
+                + "\"description\":\"Created from web interface\","
+                + "\"items\":["
+                + "{\"fs_id\":371687575009887,\"server_filename\":\"01.勇敢狗狗，出发！.mp3\","
+                + "\"path\":\"/音乐/宝宝专辑/我们动画片里的好朋友/01.勇敢狗狗，出发！.mp3\","
+                + "\"size\":1885642,\"category\":2,\"isdir\":0,\"md5\":\"90688cb49n6dbbcbb5b0cdc502275f75\","
+                + "\"add_time\":1794553444},"
+                + "{\"fs_id\":40889745777257,\"server_filename\":\"02.潜入大海深处.mp3\","
+                + "\"path\":\"/音乐/宝宝专辑/我们动画片里的好朋友/02.潜入大海深处.mp3\","
+                + "\"size\":1970890,\"isdir\":0,\"add_time\":1794553445}"
+                + "]}}";
+        PlaylistBackupCodec.ParsedBackup b = PlaylistBackupCodec.parse(json);
+        assertEquals(1, b.getPlaylists().size());
+        BackupPlaylist p = b.getPlaylists().get(0);
+        assertEquals("我们动画片里面的好朋友", p.getName());
+        assertEquals(2, p.getSongs().size());
+        assertEquals(371687575009887L, p.getSongs().get(0).getFsId());
+        assertEquals("01.勇敢狗狗，出发！.mp3", p.getSongs().get(0).getTitle());
+        assertEquals("/音乐/宝宝专辑/我们动画片里的好朋友/02.潜入大海深处.mp3",
+                p.getSongs().get(1).getPath());
+    }
+
+    @Test public void parsesSinglePlaylistAsArrayUnderSingularKey() throws Exception {
+        // 宽容处理：单数键也接受数组
+        String json = "{\"version\":\"1.0\",\"playlist\":["
+                + "{\"name\":\"A\",\"items\":[{\"fs_id\":1,\"server_filename\":\"a.mp3\",\"path\":\"/a.mp3\"}]},"
+                + "{\"name\":\"B\",\"items\":[{\"fs_id\":2,\"server_filename\":\"b.mp3\",\"path\":\"/b.mp3\"}]}"
+                + "]}";
+        PlaylistBackupCodec.ParsedBackup b = PlaylistBackupCodec.parse(json);
+        assertEquals(2, b.getPlaylists().size());
+        assertEquals("A", b.getPlaylists().get(0).getName());
+        assertEquals("B", b.getPlaylists().get(1).getName());
+    }
+
     @Test public void recentSongsAreIgnored() throws Exception {
         // 样本含 recentSongs，解析结果只有 playlists
         PlaylistBackupCodec.ParsedBackup b = PlaylistBackupCodec.parse(resource("/backup/web-sample.json"));

@@ -66,16 +66,32 @@ public final class PlaylistBackupCodec {
             throw new BackupFormatException(INVALID_FILE);
         }
         if (!root.isJsonObject()) throw new BackupFormatException(INVALID_FILE);
-        JsonElement list = root.getAsJsonObject().get("playlists");
-        if (list == null || !list.isJsonArray()) throw new BackupFormatException(INVALID_FILE);
 
+        // 同时接受两种形态：Web 端多列表导出写 "playlists"（数组），
+        // 单列表导出写 "playlist"（单个对象）。两者都可能以对象/数组出现。
         List<BackupPlaylist> playlists = new ArrayList<>();
-        for (JsonElement element : list.getAsJsonArray()) {
-            if (!element.isJsonObject()) continue;
-            playlists.add(parsePlaylist(element.getAsJsonObject()));
+        collectPlaylists(root.getAsJsonObject().get("playlists"), playlists);
+        collectPlaylists(root.getAsJsonObject().get("playlist"), playlists);
+        if (playlists.isEmpty()) {
+            throw new BackupFormatException(root.getAsJsonObject().has("playlists")
+                    || root.getAsJsonObject().has("playlist")
+                    ? "备份文件中没有播放列表" : INVALID_FILE);
         }
-        if (playlists.isEmpty()) throw new BackupFormatException("备份文件中没有播放列表");
         return new ParsedBackup(playlists);
+    }
+
+    /** 从 "playlists"/"playlist" 的值收集列表：支持单个对象或对象数组。 */
+    private static void collectPlaylists(JsonElement element, List<BackupPlaylist> out) {
+        if (element == null) return;
+        if (element.isJsonArray()) {
+            for (JsonElement item : element.getAsJsonArray()) {
+                if (item.isJsonObject()) out.add(parsePlaylist(item.getAsJsonObject()));
+            }
+        } else if (element.isJsonObject()) {
+            JsonObject o = element.getAsJsonObject();
+            // 极少数文件把单列表本身当根对象写（无包装键），此处仅处理显式的单列表对象
+            out.add(parsePlaylist(o));
+        }
     }
 
     private static BackupPlaylist parsePlaylist(JsonObject o) {
