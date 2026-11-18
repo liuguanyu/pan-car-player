@@ -95,3 +95,16 @@ app/src/main/java/com/baidu/carplayer/config/BaiduConfig.java
 .signing/
 *.jks
 *.keystore
+
+# macOS / 本地工具产物
+.DS_Store
+**/.DS_Store
+
+# AI 助手与会话产物（本地）
+.pi/
+.playwright-mcp/
+.codegraph/
+
+# Android Studio 本地状态
+.idea/emulatorDisplays.xml
+.idea/markdown.xml

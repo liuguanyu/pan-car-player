@@ -27,6 +27,8 @@ public final class VisualizerManager implements VisualizerCoordinator.Capture {
     private int sessionId;
     private volatile byte[] lastFft = EMPTY;
     private final CaptureGate gate = new CaptureGate();
+    /** 场景重置代次：切模式 / 会话释放时递增，GL 渲染器据此重置场景。 */
+    private volatile int epoch;
     private boolean playing;
     private boolean initialized;
 
@@ -59,7 +61,16 @@ public final class VisualizerManager implements VisualizerCoordinator.Capture {
             return false;
         }
     }
+    /** 粒子模式由 GLES 视图渲染（设备支持时）；其余模式仍走 Canvas。 */
+    public static boolean isGlMode(String mode) { return "particles".equals(mode); }
+
+    /** GL 渲染器每帧读取：播放中为最新 FFT，否则为空数组。 */
+    public byte[] latestFft() { return playing ? lastFft : EMPTY; }
+    public int epoch() { return epoch; }
+    public float periodMs() { return beats.periodMs(); }
+
     public void switchTo(String mode) {
+        epoch++;
         active.reset();
         for (AudioVisualizer effect : effects) if (effect.getName().equals(mode)) { active = effect; break; }
         active.reset();
@@ -92,7 +103,7 @@ public final class VisualizerManager implements VisualizerCoordinator.Capture {
     }
     @Override
     public void release() {
-        gate.invalidate(); sessionId = 0; lastFft = EMPTY;
+        gate.invalidate(); sessionId = 0; lastFft = EMPTY; epoch++;
         initialized = false;
         if (capture != null) {
             try { capture.setEnabled(false); } catch (RuntimeException ignored) {}

@@ -94,6 +94,8 @@ public class PlayerActivity extends AppCompatActivity {
     private final com.baidu.carplayer.visualizer.VisualizerManager visualizerManager =
             new com.baidu.carplayer.visualizer.VisualizerManager();
     private com.baidu.carplayer.widget.VisualizerView visualizerView;
+    private com.baidu.carplayer.widget.ParticleGlView particleGlView;
+    private boolean glSupported;
     private final com.baidu.carplayer.visualizer.VisualizerCoordinator visualizerCoordinator =
             new com.baidu.carplayer.visualizer.VisualizerCoordinator(visualizerManager);
     private int visualizerMode;
@@ -214,6 +216,9 @@ public class PlayerActivity extends AppCompatActivity {
         playlistButton = findViewById(R.id.playlist_button);
         visualizerView = findViewById(R.id.visualizer_view);
         visualizerView.attach(visualizerManager);
+        particleGlView = findViewById(R.id.particle_gl_view);
+        particleGlView.attach(visualizerManager);
+        glSupported = com.baidu.carplayer.widget.ParticleGlView.isSupported(this);
         String preferred = getSharedPreferences("player_visualizer", MODE_PRIVATE)
                 .getString("mode", "default");
         String[] modes = com.baidu.carplayer.visualizer.VisualizerManager.MODES;
@@ -686,6 +691,7 @@ public class PlayerActivity extends AppCompatActivity {
         }
         visualizerCoordinator.close();
         if (visualizerView != null) visualizerView.setActive(false);
+        if (particleGlView != null) particleGlView.setActive(false);
         if (serviceBound) {
             audioPlayerService.unsubscribePlaybackState(playbackStateSubscriber);
             unbindService(serviceConnection);
@@ -877,11 +883,15 @@ public class PlayerActivity extends AppCompatActivity {
         visualizerCoordinator.setScreenVisible(visualizerVisible && serviceBound);
         boolean show = visualizerCoordinator.apply();
         boolean playing = visualizerVisible && lastViewState != null && lastViewState.playing;
-        visualizerView.setVisibility(show ? View.VISIBLE : View.GONE);
+        boolean useGl = show && glSupported && com.baidu.carplayer.visualizer.VisualizerManager
+                .isGlMode(com.baidu.carplayer.visualizer.VisualizerManager.MODES[visualizerMode]);
+        visualizerView.setVisibility(show && !useGl ? View.VISIBLE : View.GONE);
+        particleGlView.setVisibility(useGl ? View.VISIBLE : View.GONE);
         rotatingDiscView.setVisibility(show ? View.GONE : View.VISIBLE);
         rotatingTextView.setVisibility(show ? View.GONE : View.VISIBLE);
         particleBackgroundView.setVisibility(show ? View.GONE : View.VISIBLE);
-        visualizerView.setActive(visualizerCoordinator.isRendering());
+        visualizerView.setActive(!useGl && visualizerCoordinator.isRendering());
+        particleGlView.setActive(useGl && visualizerCoordinator.isRendering());
         particleBackgroundView.setPlaying(!show && playing);
     }
 
