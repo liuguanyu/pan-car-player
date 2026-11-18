@@ -6,14 +6,13 @@ import android.util.Log;
 
 /** Owns capture only while the player page is visible. All effect state is updated on the UI thread. */
 public final class VisualizerManager implements VisualizerCoordinator.Capture {
-    public static final String[] MODES = {"default", "bars", "wave", "particles", "sheep"};
+    public static final String[] MODES = {"default", "bars", "sheep", "particles", "wave"};
     private static final byte[] EMPTY = new byte[0];
     /** 节拍跟踪：在采集线程喂入 FFT，小羊在 UI 线程读取拍位置，让舞步与音乐同步。 */
     private final BeatTracker beats = new BeatTracker();
     private final DancingSheepVisualizer sheep = new DancingSheepVisualizer();
     private final ParticlesVisualizer particles = new ParticlesVisualizer();
-    private final AudioVisualizer[] effects = {new BarsVisualizer(), new WaveVisualizer(),
-            particles, sheep};
+    private final AudioVisualizer[] effects = {new BarsVisualizer(), sheep, particles, new WaveVisualizer()};
 
     public VisualizerManager() {
         sheep.setBeatSource(new DancingSheepVisualizer.BeatSource() {
