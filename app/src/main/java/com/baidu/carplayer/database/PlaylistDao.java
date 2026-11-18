@@ -17,14 +17,19 @@ import java.util.List;
  */
 @Dao
 public interface PlaylistDao {
-    @Query("SELECT * FROM playlists ORDER BY createdTime DESC")
+    /** 列表页顺序：拖动排序写入的 sortOrder 升序，同值时新列表在前。 */
+    @Query("SELECT * FROM playlists ORDER BY sortOrder ASC, createdTime DESC")
     LiveData<List<Playlist>> getAllPlaylists();
 
-    @Query("SELECT * FROM playlists ORDER BY createdTime DESC")
+    @Query("SELECT * FROM playlists ORDER BY sortOrder ASC, createdTime DESC")
     List<Playlist> getAllPlaylistsSync();
 
     @Query("SELECT * FROM playlists WHERE id = :id")
     Playlist getPlaylistById(String id);
+
+    /** 当前最靠前的 sortOrder；空表返回 0，用于给新列表排到最前面。 */
+    @Query("SELECT COALESCE(MIN(sortOrder), 0) FROM playlists")
+    int minSortOrder();
 
     /**
      * 仅用于新建播放列表。注意：不能用 REPLACE 更新已存在的列表——
@@ -36,6 +41,10 @@ public interface PlaylistDao {
     /** 更新已存在的播放列表（原地 UPDATE，不触发级联删除）。 */
     @Update
     int updatePlaylist(Playlist playlist);
+
+    /** 只改显示顺序，避免整行更新覆盖并发写入的歌曲数量。 */
+    @Query("UPDATE playlists SET sortOrder = :sortOrder WHERE id = :id")
+    int updateSortOrder(String id, int sortOrder);
 
     @Query("UPDATE playlists SET songCount = :songCount WHERE id = :id")
     int updateSongCount(String id, int songCount);

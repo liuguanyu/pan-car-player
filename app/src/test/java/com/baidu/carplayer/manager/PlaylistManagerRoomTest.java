@@ -23,6 +23,7 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -104,6 +105,45 @@ public class PlaylistManagerRoomTest {
         });
         assertEquals(2, db.playlistDao().getPlaylistById(playlist.getId()).getSongCount());
         assertEquals(2, db.songDao().getSongsByPlaylistSync(playlist.getId()).size());
+    }
+
+    @Test
+    public void creatingPlaylistsPutsNewestFirst() {
+        Playlist a = createPlaylist();
+        Playlist b = createPlaylist();
+        assertTrue(a.getSortOrder() > b.getSortOrder());
+        List<Playlist> all = db.playlistDao().getAllPlaylistsSync();
+        assertEquals(b.getId(), all.get(0).getId());
+        assertEquals(a.getId(), all.get(1).getId());
+    }
+
+    @Test
+    public void reorderingPersistsAndSurvivesLaterCreates() {
+        Playlist a = createPlaylist();
+        Playlist b = createPlaylist();
+        Playlist c = createPlaylist();
+        // 当前顺序：c, b, a → 拖成 a, c, b
+        List<Playlist> ordered = Arrays.asList(a, c, b);
+        manager.reorderPlaylists(ordered, listener(new AtomicReference<>()));
+        List<Playlist> all = db.playlistDao().getAllPlaylistsSync();
+        assertEquals(Arrays.asList(a.getId(), c.getId(), b.getId()),
+                Arrays.asList(all.get(0).getId(), all.get(1).getId(), all.get(2).getId()));
+
+        // 再新建仍然排在最前面
+        Playlist d = createPlaylist();
+        all = db.playlistDao().getAllPlaylistsSync();
+        assertEquals(d.getId(), all.get(0).getId());
+        assertEquals(a.getId(), all.get(1).getId());
+    }
+
+    @Test
+    public void reorderingKeepsSongsAndCounts() {
+        Playlist a = createPlaylist();
+        Playlist b = createPlaylist();
+        manager.addSongToPlaylist(a.getId(), song(1), listener(new AtomicReference<>()));
+        manager.reorderPlaylists(Arrays.asList(a, b), listener(new AtomicReference<>()));
+        assertEquals(1, db.playlistDao().getPlaylistById(a.getId()).getSongCount());
+        assertEquals(1, db.songDao().getSongsByPlaylistSync(a.getId()).size());
     }
 
     @Test

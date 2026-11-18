@@ -1,6 +1,7 @@
 package com.baidu.carplayer.adapter;
 
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageButton;
@@ -20,6 +21,7 @@ public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.Playli
 
     private List<Playlist> playlists = new ArrayList<>();
     private OnPlaylistClickListener listener;
+    private OnPlaylistDragStartListener dragStartListener;
     private int selectedPosition = -1;
 
     public interface OnPlaylistClickListener {
@@ -28,8 +30,38 @@ public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.Playli
         void onPlaylistLongClick(Playlist playlist, int position);
     }
 
+    /** 由宿主（ItemTouchHelper）接管拖动手势。 */
+    public interface OnPlaylistDragStartListener {
+        void onPlaylistDragStart(RecyclerView.ViewHolder holder);
+    }
+
     public void setOnPlaylistClickListener(OnPlaylistClickListener listener) {
         this.listener = listener;
+    }
+
+    public void setOnPlaylistDragStartListener(OnPlaylistDragStartListener dragStartListener) {
+        this.dragStartListener = dragStartListener;
+    }
+
+    /** 当前展示顺序的快照，供拖动结束后持久化。 */
+    public List<Playlist> getPlaylists() {
+        return new ArrayList<>(playlists);
+    }
+
+    /** 拖动过程中移动一行（只做视图层面的移动，松手后再写库）。 */
+    public void moveItem(int from, int to) {
+        if (from == to || from < 0 || to < 0 || from >= playlists.size() || to >= playlists.size()) {
+            return;
+        }
+        playlists.add(to, playlists.remove(from));
+        notifyItemMoved(from, to);
+    }
+
+    /** 顺序变化完成后重绘可见行（背景斑马纹、选中高亮依赖 position）。 */
+    public void notifyOrderChanged() {
+        if (!playlists.isEmpty()) {
+            notifyItemRangeChanged(0, playlists.size());
+        }
     }
 
     public void setPlaylists(List<Playlist> playlists) {
@@ -89,6 +121,7 @@ public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.Playli
         private TextView playlistName;
         private TextView playlistCount;
         private ImageButton playlistMore;
+        private ImageView playlistDragHandle;
 
         public PlaylistViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -96,6 +129,15 @@ public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.Playli
             playlistName = itemView.findViewById(R.id.playlist_name);
             playlistCount = itemView.findViewById(R.id.playlist_count);
             playlistMore = itemView.findViewById(R.id.playlist_more);
+            playlistDragHandle = itemView.findViewById(R.id.playlist_drag_handle);
+
+            // 只有从拖动手柄按下才开始拖动，长按整行仍然是打开列表菜单。
+            playlistDragHandle.setOnTouchListener((v, event) -> {
+                if (event.getActionMasked() == MotionEvent.ACTION_DOWN && dragStartListener != null) {
+                    dragStartListener.onPlaylistDragStart(this);
+                }
+                return false;
+            });
 
             itemView.setOnClickListener(v -> {
                 int position = getAdapterPosition();

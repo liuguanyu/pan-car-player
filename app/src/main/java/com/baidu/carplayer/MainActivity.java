@@ -18,6 +18,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.baidu.carplayer.adapter.PlaylistAdapter;
@@ -43,6 +44,9 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
 
     private RecyclerView playlistListView;
     private PlaylistAdapter playlistAdapter;
+    private ItemTouchHelper playlistTouchHelper;
+    // 拖动过程中只改视图，松手后写一次库
+    private boolean playlistOrderDirty = false;
     private PlaylistManager playlistManager;
     private ImageButton addPlaylistButton;
     private ImageButton nowPlayingButton;
@@ -146,6 +150,8 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
         playlistAdapter.setOnPlaylistClickListener(this);
         playlistListView.setAdapter(playlistAdapter);
 
+        initDragSort();
+
         // 设置按钮点击事件
         addPlaylistButton.setOnClickListener(v -> showCreatePlaylistDialog());
         nowPlayingButton.setOnClickListener(v -> openCurrentPlayer());
@@ -154,6 +160,81 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
         findViewById(R.id.add_playlist_empty_button).setOnClickListener(v -> showCreatePlaylistDialog());
     }
     
+    /**
+     * 列表页拖动排序：只能从行尾的拖动手柄发起，长按整行仍然弹出列表菜单；
+     * 拖动中不碰数据库，松手后按当前顺序一次性持久化。
+     */
+    private void initDragSort() {
+        playlistTouchHelper = new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(
+                ItemTouchHelper.UP | ItemTouchHelper.DOWN, 0) {
+            @Override
+            public boolean onMove(@NonNull RecyclerView recyclerView,
+                                  @NonNull RecyclerView.ViewHolder viewHolder,
+                                  @NonNull RecyclerView.ViewHolder target) {
+                int from = viewHolder.getAdapterPosition();
+                int to = target.getAdapterPosition();
+                if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) {
+                    return false;
+                }
+                playlistAdapter.moveItem(from, to);
+                playlistOrderDirty = true;
+                return true;
+            }
+
+            @Override
+            public void onSwiped(@NonNull RecyclerView.ViewHolder viewHolder, int direction) {
+                // 只支持拖动排序，不支持滑动删除
+            }
+
+            @Override
+            public boolean isLongPressDragEnabled() {
+                return false;
+            }
+
+            @Override
+            public void onSelectedChanged(RecyclerView.ViewHolder viewHolder, int actionState) {
+                super.onSelectedChanged(viewHolder, actionState);
+                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && viewHolder != null) {
+                    viewHolder.itemView.setAlpha(0.7f);
+                }
+            }
+
+            @Override
+            public void clearView(@NonNull RecyclerView recyclerView,
+                                  @NonNull RecyclerView.ViewHolder viewHolder) {
+                super.clearView(recyclerView, viewHolder);
+                viewHolder.itemView.setAlpha(1f);
+                if (playlistOrderDirty) {
+                    playlistOrderDirty = false;
+                    // 斑马纹/高亮依赖位置，落位后重绘一次
+                    playlistAdapter.notifyOrderChanged();
+                    persistPlaylistOrder();
+                }
+            }
+        });
+        playlistTouchHelper.attachToRecyclerView(playlistListView);
+        playlistAdapter.setOnPlaylistDragStartListener(playlistTouchHelper::startDrag);
+    }
+
+    private void persistPlaylistOrder() {
+        List<Playlist> ordered = playlistAdapter.getPlaylists();
+        playlistManager.reorderPlaylists(ordered, new PlaylistManager.OnResultListener() {
+            @Override
+            public void onSuccess(Object result) {
+                // 顺序已在界面上，无需重新加载
+            }
+
+            @Override
+            public void onError(String error) {
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "保存排序失败: " + error, Toast.LENGTH_SHORT).show();
+                    // 以数据库为准回退界面顺序
+                    loadPlaylists();
+                });
+            }
+        });
+    }
+
     private boolean isNowPlayingSuppressed() {
         return false;
     }

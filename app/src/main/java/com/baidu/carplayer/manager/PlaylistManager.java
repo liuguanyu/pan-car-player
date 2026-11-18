@@ -56,7 +56,11 @@ public class PlaylistManager {
                 playlist.setCreatedTime(System.currentTimeMillis());
                 playlist.setSongCount(0);
                 
-                databaseManager.getDatabase().playlistDao().insertPlaylist(playlist);
+                databaseManager.getDatabase().runInTransaction(() -> {
+                    // 新列表排在最前面（与 createdTime DESC 时代的观感一致）
+                    playlist.setSortOrder(databaseManager.getDatabase().playlistDao().minSortOrder() - 1);
+                    databaseManager.getDatabase().playlistDao().insertPlaylist(playlist);
+                });
                 
                 if (listener != null) {
                     listener.onSuccess(playlist);
@@ -285,6 +289,39 @@ public class PlaylistManager {
         });
     }
     
+    /**
+     * 按给定顺序重写列表页排序：下标即新的 sortOrder，在同一个事务中写库。
+     * 调用方传入的应当是列表页当前展示顺序的全部列表。
+     */
+    public void reorderPlaylists(List<Playlist> ordered, OnResultListener listener) {
+        if (ordered == null || ordered.isEmpty()) {
+            if (listener != null) {
+                listener.onSuccess(null);
+            }
+            return;
+        }
+        List<Playlist> snapshot = new ArrayList<>(ordered);
+        diskExecutor.execute(() -> {
+            try {
+                databaseManager.getDatabase().runInTransaction(() -> {
+                    for (int i = 0; i < snapshot.size(); i++) {
+                        Playlist playlist = snapshot.get(i);
+                        if (playlist == null || playlist.getId() == null) continue;
+                        databaseManager.getDatabase().playlistDao().updateSortOrder(playlist.getId(), i);
+                        playlist.setSortOrder(i);
+                    }
+                });
+                if (listener != null) {
+                    listener.onSuccess(null);
+                }
+            } catch (Exception e) {
+                if (listener != null) {
+                    listener.onError(e.getMessage());
+                }
+            }
+        });
+    }
+
     /**
      * 获取所有播放列表
      */
@@ -532,11 +569,14 @@ public class PlaylistManager {
             }
             List<ImportedPlaylist> imported = new ArrayList<>();
             int n = playlists.size();
+            int top = databaseManager.getDatabase().playlistDao().minSortOrder();
             for (int i = 0; i < n; i++) {
                 BackupPlaylist source = playlists.get(i);
                 String name = ImportNaming.uniqueName(source.getName(), taken);
                 taken.add(name);
                 Playlist playlist = new Playlist(UUID.randomUUID().toString(), name, now + (n - i));
+                // 导入的列表按文件顺序排在最前面，排在已有列表之前
+                playlist.setSortOrder(top - n + i);
                 databaseManager.getDatabase().playlistDao().insertPlaylist(playlist);
                 List<Song> songs = new ArrayList<>(source.getSongs().size());
                 Set<Long> seen = new HashSet<>();

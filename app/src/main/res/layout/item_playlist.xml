@@ -54,6 +54,16 @@
 
     </LinearLayout>
 
+    <ImageView
+        android:id="@+id/playlist_drag_handle"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:src="@android:drawable/ic_menu_sort_by_size"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:scaleType="centerInside"
+        android:contentDescription="拖动排序"
+        app:tint="@color/car_text_secondary" />
+
     <ImageButton
         android:id="@+id/playlist_more"
         android:layout_width="48dp"
