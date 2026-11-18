@@ -6,7 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import android.graphics.drawable.GradientDrawable;
 import android.view.View;
-import com.baidu.carplayer.widget.LcdTextView;
+import android.widget.TextView;
 
 import com.baidu.carplayer.vehicle.SpeedTheme;
 
@@ -46,10 +46,11 @@ public class PlayerSpeedThemeTest {
     @Test public void movingShowsRoundedSpeed() {
         PlayerActivity a = activity();
         a.applySpeed(87.6f, true);
-        LcdTextView speed = a.findViewById(R.id.speed_text);
+        com.baidu.carplayer.widget.LcdTextView speed = a.findViewById(R.id.speed_text);
         assertEquals(View.VISIBLE, speed.getVisibility());
         assertEquals("88", speed.getText().toString());
         assertEquals(View.VISIBLE, a.findViewById(R.id.speed_unit).getVisibility());
+        assertEquals("km/h", ((TextView) a.findViewById(R.id.speed_unit)).getText().toString());
     }
 
     @Test public void headerAndControlBarAreRedrawnAsGradients() {

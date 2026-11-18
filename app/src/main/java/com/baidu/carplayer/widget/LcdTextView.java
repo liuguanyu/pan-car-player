@@ -76,7 +76,6 @@ public final class LcdTextView extends View {
     private int digitColor = 0xffffffff;
     private int ghostColor = 0x1affffff;
     private boolean ghost = true;
-    private char glyphChar;
 
     // ---- 数字滚动动画 ----
     private float currentNumber = Float.NaN;
@@ -167,17 +166,13 @@ public final class LcdTextView extends View {
         float y0 = getPaddingTop();
         float x = getPaddingLeft();
         for (int i = 0; i < text.length(); i++) {
-            glyphChar = text.charAt(i);
-            drawGlyph(canvas, x, y0, SEG[glyphChar]);
+            drawGlyph(canvas, x, y0, SEG[text.charAt(i)]);
             x += glyphWidth + charGap;
         }
     }
 
     private void drawGlyph(Canvas canvas, float left, float top, int mask) {
         float w = glyphWidth, h = glyphHeight, s = stroke;
-        // 七段画不出的字符单独用矢量画
-        if (glyphChar == 'M') { drawLetterM(canvas, left, top); return; }
-        if (glyphChar == '/') { drawSlash(canvas, left, top); return; }
 
         float cx = top + h / 2f;
         float[][] segs = {
@@ -215,45 +210,6 @@ public final class LcdTextView extends View {
             segPaint.setAlpha(255);
             canvas.drawPath(path, segPaint);
         }
-    }
-
-    /** M：外框两竖 + 中间的 V 形折线（七段表达不了 M）。 */
-    private void drawLetterM(Canvas canvas, float left, float top) {
-        float w = glyphWidth, h = glyphHeight, s = stroke;
-        path.reset();
-        path.moveTo(left, top + h);
-        path.lineTo(left, top);
-        path.lineTo(left + w / 2f, top + h * .46f);
-        path.lineTo(left + w, top);
-        path.lineTo(left + w, top + h);
-        path.lineTo(left + w - s, top + h);
-        path.lineTo(left + w - s, top + s * 1.4f);
-        path.lineTo(left + w / 2f, top + h * .62f);
-        path.lineTo(left + s, top + s * 1.4f);
-        path.lineTo(left + s, top + h);
-        path.close();
-        lit();
-    }
-
-    /** 斜线：从右下到左上的斜杠。 */
-    private void drawSlash(Canvas canvas, float left, float top) {
-        float w = glyphWidth, h = glyphHeight, s = stroke;
-        path.reset();
-        path.moveTo(left + w, top + h);
-        path.lineTo(left + w - s * 1.2f, top + h);
-        path.lineTo(left, top);
-        path.lineTo(left + s * 1.2f, top);
-        path.close();
-        lit();
-    }
-
-    private void lit() {
-        glowPaint.setColor(digitColor);
-        glowPaint.setAlpha(52);
-        canvas.drawPath(path, glowPaint);
-        segPaint.setColor(digitColor);
-        segPaint.setAlpha(255);
-        canvas.drawPath(path, segPaint);
     }
 
     private void quad(float[] p) {

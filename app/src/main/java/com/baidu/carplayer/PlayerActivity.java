@@ -77,7 +77,7 @@ public class PlayerActivity extends AppCompatActivity {
     private LinearLayout headerLayout;
     private LinearLayout controlBar;
     private com.baidu.carplayer.widget.LcdTextView speedText;
-    private com.baidu.carplayer.widget.LcdTextView speedUnit;
+    private TextView speedUnit;
     /** 实时车速（GPS）：只用于显示与配色，不记录轨迹。 */
     private com.baidu.carplayer.vehicle.SpeedMonitor speedMonitor;
     /** 当前车速（平滑后），0 表示静止。 */
@@ -212,14 +212,6 @@ public class PlayerActivity extends AppCompatActivity {
         controlBar = findViewById(R.id.control_bar);
         speedText = findViewById(R.id.speed_text);
         speedUnit = findViewById(R.id.speed_unit);
-        if (speedUnit != null) {
-            // 单位比数字小一号、更细，不画鬼影（小尺寸下鬼影会糊）
-            float sp = getResources().getDisplayMetrics().scaledDensity;
-            speedUnit.setSize(sp * 1.6f, sp * 5f, sp * 9f, sp * 2.6f);
-            speedUnit.setGhost(false);
-            speedUnit.setText("KM/H");
-            speedUnit.setDigitColor(0xffb9c6d8);
-        }
         currentTime = findViewById(R.id.current_time);
         audioInfo = findViewById(R.id.audio_info);
         totalTime = findViewById(R.id.total_time);
@@ -888,7 +880,12 @@ public class PlayerActivity extends AppCompatActivity {
         if (speedText != null) {
             boolean show = valid && kmh >= 1f;
             speedText.setVisibility(show ? View.VISIBLE : View.GONE);
-            if (speedUnit != null) speedUnit.setVisibility(show ? View.VISIBLE : View.GONE);
+            if (speedUnit != null) {
+                speedUnit.setVisibility(show ? View.VISIBLE : View.GONE);
+                // 单位跟随数字的强调色，但淡一档，保持层级
+                speedUnit.setTextColor((com.baidu.carplayer.vehicle.SpeedTheme.accent(kmh)
+                        & 0x00ffffff) | 0xb0000000);
+            }
             if (show) {
                 // 四舍五入：87.6 应显示 88，而不是被截断成 87
                 boolean first = speedText.getText().isEmpty();
