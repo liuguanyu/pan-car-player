@@ -75,6 +75,15 @@ public class PlayerActivity extends AppCompatActivity {
     private TextView songTitle;
     private TextView songAlbum;
     private LinearLayout headerLayout;
+    private LinearLayout controlBar;
+    private com.baidu.carplayer.widget.LcdTextView speedText;
+    private com.baidu.carplayer.widget.LcdTextView speedUnit;
+    /** 实时车速（GPS）：只用于显示与配色，不记录轨迹。 */
+    private com.baidu.carplayer.vehicle.SpeedMonitor speedMonitor;
+    /** 当前车速（平滑后），0 表示静止。 */
+    private float currentSpeedKmh;
+    /** 是否有有效定位；无定位时标题栏用中性配色、隐藏车速。 */
+    private boolean speedValid;
     private TextView currentTime;
     private TextView audioInfo;
     private TextView totalTime;
@@ -101,6 +110,7 @@ public class PlayerActivity extends AppCompatActivity {
     private int visualizerMode;
     private boolean visualizerVisible;
     private static final int REQUEST_VISUALIZER_AUDIO = 401;
+    private static final int REQUEST_LOCATION = 402;
     
     // 播放列表相关
     private FrameLayout playlistContainer;
@@ -188,8 +198,9 @@ public class PlayerActivity extends AppCompatActivity {
         initViews();
         initData();
         
-        // 初始化顶部标题栏渐变背景
+        // 标题栏/控制栏配色由车速驱动；无定位时用中性底色
         updateHeaderGradient();
+        setupSpeedMonitor();
         
         bindPlayerService();
     }
@@ -198,6 +209,17 @@ public class PlayerActivity extends AppCompatActivity {
         songTitle = findViewById(R.id.song_title);
         songAlbum = findViewById(R.id.song_album);
         headerLayout = findViewById(R.id.header_layout);
+        controlBar = findViewById(R.id.control_bar);
+        speedText = findViewById(R.id.speed_text);
+        speedUnit = findViewById(R.id.speed_unit);
+        if (speedUnit != null) {
+            // 单位比数字小一号，并且不画鬼影（否则小字糊成一片）
+            float dot = getResources().getDisplayMetrics().scaledDensity * 2.2f;
+            speedUnit.setDotSize(dot);
+            speedUnit.setGhost(false);
+            speedUnit.setText("KM/H");
+            speedUnit.setDigitColor(0xffb9c6d8);
+        }
         currentTime = findViewById(R.id.current_time);
         audioInfo = findViewById(R.id.audio_info);
         totalTime = findViewById(R.id.total_time);
@@ -692,6 +714,7 @@ public class PlayerActivity extends AppCompatActivity {
         visualizerCoordinator.close();
         if (visualizerView != null) visualizerView.setActive(false);
         if (particleGlView != null) particleGlView.setActive(false);
+        if (speedMonitor != null) { speedMonitor.stop(); speedMonitor = null; }
         if (serviceBound) {
             audioPlayerService.unsubscribePlaybackState(playbackStateSubscriber);
             unbindService(serviceConnection);
@@ -837,30 +860,63 @@ public class PlayerActivity extends AppCompatActivity {
     /**
      * 更新顶部标题栏背景渐变色
      */
+    /**
+     * 按车速重绘标题栏渐变与底部控制栏压暗色：静止靛蓝、巡航青蓝、高速转琥珀/橙红。
+     * 无有效定位时退回中性深色，不显示车速。
+     */
     private void updateHeaderGradient() {
         if (headerLayout == null) return;
-
-        Random random = new Random();
-        // 生成两个随机颜色，保持较深的色调作为背景
-        // 使用较低的亮度值 (0-100) 确保背景不会太亮，影响白色文字的可读性
-        int r1 = random.nextInt(80);
-        int g1 = random.nextInt(80);
-        int b1 = random.nextInt(120); // 稍微偏蓝/紫
-        
-        int r2 = random.nextInt(100);
-        int g2 = random.nextInt(60);
-        int b2 = random.nextInt(140); // 稍微偏紫/红
-
-        int color1 = Color.rgb(r1, g1, b1);
-        int color2 = Color.rgb(r2, g2, b2);
-
-        GradientDrawable gradientDrawable = new GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{color1, color2});
-        
-        headerLayout.setBackground(gradientDrawable);
+        float kmh = speedValid ? currentSpeedKmh : 0f;
+        int[] colors = com.baidu.carplayer.vehicle.SpeedTheme.headerColors(kmh, speedValid);
+        headerLayout.setBackground(new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM, new int[]{colors[0], colors[1]}));
+        if (controlBar != null) {
+            // 保持"透明 → 压暗"的原有结构，只把压暗色换成随车速变化的色调
+            controlBar.setBackground(new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{Color.TRANSPARENT, colors[2]}));
+        }
     }
-    
+
+    /**
+     * 应用一次车速读数：更新数字、按车速重绘标题栏与控制栏配色。
+     * 静止（<1km/h）或无有效定位时隐藏数字，配色退回中性并把标题栏压暗一档。
+     */
+    void applySpeed(float kmh, boolean valid) {
+        currentSpeedKmh = kmh;
+        speedValid = valid;
+        if (speedText != null) {
+            boolean show = valid && kmh >= 1f;
+            speedText.setVisibility(show ? View.VISIBLE : View.GONE);
+            if (speedUnit != null) speedUnit.setVisibility(show ? View.VISIBLE : View.GONE);
+            if (show) {
+                // 四舍五入：87.6 应显示 88，而不是被截断成 87
+                if (speedText.getText().isEmpty()) {
+                    // 数字尺寸按高度比例设定一次，保证和标题栏协调
+                    speedText.setDotSize(getResources().getDisplayMetrics().scaledDensity * 4f);
+                    speedText.setDigitColor(0xffffffff);
+                }
+                speedText.setText(String.format(Locale.getDefault(), "%d", Math.round(kmh)));
+                speedText.setDigitColor(com.baidu.carplayer.vehicle.SpeedTheme.accent(kmh));
+            }
+        }
+        updateHeaderGradient();
+    }
+
+    /** 启动车速显示：申请定位权限后开始接收 GPS 地速。 */
+    private void setupSpeedMonitor() {
+        if (speedMonitor != null) return;
+        speedMonitor = new com.baidu.carplayer.vehicle.SpeedMonitor(this);
+        speedMonitor.setListener(this::applySpeed);
+        if (com.baidu.carplayer.vehicle.SpeedMonitor.hasPermission(this)) {
+            speedMonitor.start();
+        } else {
+            requestPermissions(new String[]{
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQUEST_LOCATION);
+        }
+    }
+
     private void cycleVisualizer() {
         visualizerMode = (visualizerMode + 1) % com.baidu.carplayer.visualizer.VisualizerManager.MODES.length;
         String mode = com.baidu.carplayer.visualizer.VisualizerManager.MODES[visualizerMode];
@@ -898,6 +954,13 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_LOCATION) {
+            // 拒绝也不影响播放：车速隐藏、配色退回中性
+            if (com.baidu.carplayer.vehicle.SpeedMonitor.hasPermission(this) && speedMonitor != null) {
+                speedMonitor.start();
+            }
+            return;
+        }
         if (requestCode == REQUEST_VISUALIZER_AUDIO) {
             if (grantResults.length == 0 || grantResults[0] != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 Toast.makeText(this, "未授予权限，继续使用唱片模式，不影响播放", Toast.LENGTH_SHORT).show();
@@ -911,11 +974,16 @@ public class PlayerActivity extends AppCompatActivity {
         super.onResume();
         visualizerVisible = true;
         updateVisualization();
+        // 页面可见才接收定位（导航/听歌时才有意义），避免后台耗电
+        if (speedMonitor != null && com.baidu.carplayer.vehicle.SpeedMonitor.hasPermission(this)) {
+            speedMonitor.start();
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        if (speedMonitor != null) speedMonitor.stop();
         // 当Activity进入后台时保存播放进度
         if (serviceBound && audioPlayerService != null) {
             audioPlayerService.dispatch(PlaybackCommand.Type.SAVE_STATE);

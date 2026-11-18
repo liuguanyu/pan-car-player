@@ -24,6 +24,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     
+    <!-- 实时车速：只读取 GPS 地速用于显示，不记录、不上传轨迹 -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <!-- 通知权限（Android 13+） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 

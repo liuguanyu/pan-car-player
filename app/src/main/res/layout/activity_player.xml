@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/car_background_dark">
@@ -53,6 +54,22 @@
             android:singleLine="true"
             android:ellipsize="end"
             android:maxWidth="200dp" />
+
+        <!-- 实时车速（GPS）：液晶点阵数字 + 单位，静止或无定位时自动隐藏 -->
+        <com.baidu.carplayer.widget.LcdTextView
+            android:id="@+id/speed_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp"
+            android:visibility="gone"
+            tools:ignore="MissingDefaultResource" />
+
+        <com.baidu.carplayer.widget.LcdTextView
+            android:id="@+id/speed_unit"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="@dimen/spacing_normal"
+            android:visibility="gone" />
 
         <!-- 音频信息显示 -->
         <TextView
@@ -145,6 +162,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="@dimen/spacing_medium"
+        android:id="@+id/control_bar"
         android:background="@drawable/bottom_control_gradient">
 
         <!-- 进度条和时间 -->
