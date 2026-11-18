@@ -87,6 +87,9 @@ public class AudioPlayerService extends Service {
     private boolean destroyed = false;
     /** 当前这首加载是否已做过一次"作废缓存重取"重试，防止 403 死循环。 */
     private boolean urlRetriedForCurrentLoad = false;
+    /** 本次切歌的起点时间，用于记录"点击 → 出声"耗时（排查无损大文件加载慢）。 */
+    private long loadStartMs = 0L;
+    private boolean loadTimingPending = false;
     /** 下一首 URL 预取：订阅队列变更与出声事件，见 NextUpPreloader。 */
     private com.baidu.carplayer.playback.NextUpPreloader nextUpPreloader;
     // 最近一次加载/解码失败；之后的 PLAY 需要重新获取下载地址，而不是恢复旧媒体项。
@@ -129,6 +132,39 @@ public class AudioPlayerService extends Service {
 
     private void stopProgressPublish() {
         commandHandler.removeCallbacks(progressPublishRunnable);
+    }
+
+    /**
+     * 预取只在“当前曲目已经稳定播放”之后才启动。
+     *
+     * 大体积无损（wav/flac）开头几秒一直在抢带宽做首缓，此时多发一个 filemetas
+     * 接口请求（以及弱网下的退避重试）会直接拖慢这一首的加载；所以预取的窗口
+     * 放在首缓结束、真正出声之后，缓冲不够时再自动关闭。
+     */
+    private static final long PREFETCH_STABLE_DELAY_MS = 6000L;
+    private final Runnable prefetchArmRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!destroyed && isPlaying()) {
+                nextUpPreloader.setEnabled(true);
+            }
+        }
+    };
+
+    /** 重新计时，延迟 PREFETCH_STABLE_DELAY_MS 后再启用预取；不满足条件时直接关闭。 */
+    private void schedulePrefetch(boolean playing) {
+        commandHandler.removeCallbacks(prefetchArmRunnable);
+        if (destroyed || !playing) {
+            nextUpPreloader.setEnabled(false);
+            return;
+        }
+        commandHandler.postDelayed(prefetchArmRunnable, PREFETCH_STABLE_DELAY_MS);
+    }
+
+    /** 进入缓冲/切歌时立即停掉预取：把带宽与接口配额全部让给正在加载的这首。 */
+    private void suspendPrefetchForLoading() {
+        commandHandler.removeCallbacks(prefetchArmRunnable);
+        nextUpPreloader.setEnabled(false);
     }
 
     private final Runnable progressSaveRunnable = new Runnable() {
@@ -203,15 +239,27 @@ public class AudioPlayerService extends Service {
                 } else {
                     stopProgressPublish();
                 }
-                // 真正出声时才启用预取（切歌期间播放器在缓冲，不会误触发）
-                nextUpPreloader.setEnabled(isPlaying);
+                if (isPlaying && loadTimingPending) {
+                    loadTimingPending = false;
+                    Log.d(TAG, "加载耗时: 切歌→出声 "
+                            + (android.os.SystemClock.elapsedRealtime() - loadStartMs) + "ms");
+                }
+                // 预取延后到“稳定播放”后：切歌/首缓期间不发后台接口请求
+                schedulePrefetch(isPlaying);
             }
 
             @Override
             public void onPlaybackStateChanged(int playbackState) {
                 Log.d(TAG, "播放状态变化: " + PlayerEngine.stateName(playbackState));
+                if (playbackState == Player.STATE_BUFFERING) {
+                    // 缓冲中：停掉预取，避免与当前曲目（尤其是大体积无损）抢网络
+                    suspendPrefetchForLoading();
+                }
                 if (playbackState == Player.STATE_READY) {
+                    Log.d(TAG, "加载耗时: 切歌→就绪 "
+                            + (android.os.SystemClock.elapsedRealtime() - loadStartMs) + "ms");
                     PlayerEngine.logReady(exoPlayer);
+                    schedulePrefetch(isPlaying());
                     // 只消费与当前加载请求绑定的 seek/autoplay 意图。
                     PlaybackCommand command = requestTracker.consumeSeek();
                     if (command != null) {
@@ -488,9 +536,14 @@ public class AudioPlayerService extends Service {
      * @param seekToPosition 播放器准备好后要seek到的位置（毫秒），null表示不seek
      */
     private void playAtPosition(int position, boolean saveState, Long seekToPosition) {
+        // 先停预取再动队列：moveTo 会触发队列变更回调，而 ExoPlayer 的 isPlaying=false
+        // 回调是异步的，不先停的话切歌瞬间会多发一个 filemetas 请求，与本曲的取链接抢网络。
+        // 新歌真正出声（onIsPlayingChanged(true)）后会自动重新启用。
+        nextUpPreloader.setEnabled(false);
         if (!queue.moveTo(position)) {
             return;
         }
+        loadStartMs = android.os.SystemClock.elapsedRealtime();
         urlRetriedForCurrentLoad = false;
         com.baidu.carplayer.model.Song song = queue.current();
         final long requestGeneration = requestTracker.begin(song.getId(), seekToPosition, true).getRequestId();
@@ -501,6 +554,7 @@ public class AudioPlayerService extends Service {
         Log.d(TAG, "位置: " + position);
         Log.d(TAG, "seekToPosition: " + seekToPosition);
         publishPlaybackState();
+        loadTimingPending = true;
         String cachedUrl = downloadUrlRepository.getCachedUrl(song.getFsId());
         if (cachedUrl != null) {
             // 缓存命中：零 API 往返，立即开始缓冲
@@ -578,6 +632,8 @@ public class AudioPlayerService extends Service {
                     return;
                 }
                 pendingUrlRequest = null;
+                Log.d(TAG, "加载耗时: 取链接 "
+                        + (android.os.SystemClock.elapsedRealtime() - loadStartMs) + "ms");
                 play(playableUrl);
             }
 
@@ -972,6 +1028,7 @@ public class AudioPlayerService extends Service {
     
     @Override
     public void onDestroy() {
+        commandHandler.removeCallbacks(prefetchArmRunnable);
         nextUpPreloader.dispose();
         // 先使所有异步播放回调失效，再释放播放器。
         destroyed = true;

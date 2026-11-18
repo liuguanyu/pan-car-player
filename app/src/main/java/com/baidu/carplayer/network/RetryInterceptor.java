@@ -13,6 +13,15 @@ import okhttp3.Response;
  * 否则它们会在退避等待中占住 OkHttp 每个 host 的并发名额，拖慢最新请求。
  */
 public class RetryInterceptor implements Interceptor {
+    /**
+     * 静默请求标记头：存在即表示后台预取类请求，失败不要重试。
+     * 车载弱网下 3 次退避重试会让预取请求占住同 host 的连接与线程数秒，
+     * 正好拦住用户真正要切的那首歌。
+     */
+    public static final String SILENT_HEADER = "X-Client-Silent";
+    /** 静默请求的头部值。 */
+    public static final String SILENT_REQUEST = "1";
+
     /** 退避等待的检查粒度，保证取消后能尽快释放线程。 */
     private static final long SLEEP_SLICE_MS = 100;
 
@@ -31,6 +40,9 @@ public class RetryInterceptor implements Interceptor {
     @Override
     public Response intercept(Chain chain) throws IOException {
         Request request = chain.request();
+        if (request.header(SILENT_HEADER) != null) {
+            return chain.proceed(request); // 预取请求：一次机会，不重试
+        }
         Response response = null;
         IOException exception = null;
 

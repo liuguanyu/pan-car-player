@@ -28,6 +28,7 @@ public class RetryInterceptorTest {
     private static final class FakeChain implements Interceptor.Chain {
         final Call call = new OkHttpClient().newCall(REQUEST);
         final Deque<Object> results = new ArrayDeque<>();
+        Request request = REQUEST;
         int proceeds;
         Runnable onProceed;
 
@@ -36,7 +37,7 @@ public class RetryInterceptorTest {
             return this;
         }
 
-        @Override public Request request() { return REQUEST; }
+        @Override public Request request() { return request; }
 
         @Override public Response proceed(Request request) throws IOException {
             proceeds++;
@@ -123,6 +124,21 @@ public class RetryInterceptorTest {
             long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
             assertTrue("退避应在取消后很快结束，实际 " + elapsedMs + "ms", elapsedMs < 1_000);
             assertEquals("取消后不应再次发起请求", 1, chain.proceeds);
+        }
+    }
+
+    @Test
+    public void silentRequestIsNeverRetried() throws IOException {
+        // 预取（静默请求）失败不重试：否则退避重试会占住连接，拖慢用户真正切的那首。
+        FakeChain chain = new FakeChain().then(new IOException("timeout")).then(200);
+        chain.request = REQUEST.newBuilder()
+                .header(RetryInterceptor.SILENT_HEADER, RetryInterceptor.SILENT_REQUEST)
+                .build();
+        try {
+            new RetryInterceptor(3, 1).intercept(chain);
+            fail();
+        } catch (IOException expected) {
+            assertEquals(1, chain.proceeds);
         }
     }
 

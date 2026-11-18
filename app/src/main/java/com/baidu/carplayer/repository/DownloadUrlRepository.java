@@ -16,6 +16,15 @@ public interface DownloadUrlRepository {
     Cancellable resolve(long fsId, Callback callback);
 
     /**
+     * 预取用途解析：与 {@link #resolve} 共享缓存与在途请求，但实现可以放宽重试策略，
+     * 保证后台预取失败时不会用退避重试长期占用前台播放要用的连接。
+     * 默认与 {@link #resolve} 完全一致。
+     */
+    default Cancellable resolvePrefetch(long fsId, Callback callback) {
+        return resolve(fsId, callback);
+    }
+
+    /**
      * 缓存的可播放 URL；无缓存或已过期返回 null。
      * 默认无缓存，返回 null。
      */

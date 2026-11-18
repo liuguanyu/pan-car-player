@@ -7,8 +7,11 @@ import com.baidu.carplayer.model.TokenResponse;
 
 import java.util.Map;
 
+import androidx.annotation.Nullable;
+
 import retrofit2.Call;
 import retrofit2.http.GET;
+import retrofit2.http.Header;
 import retrofit2.http.Query;
 import retrofit2.http.QueryMap;
 
@@ -68,14 +71,18 @@ public interface BaiduPanService {
     );
     
     /**
-     * 获取文件下载链接
+     * 获取文件下载链接。
+     *
+     * @param silent 非空时表示这是后台静默请求（预取）：失败不重试，避免退避重试
+     *               长时间占用连接与线程而拖慢前台播放的加载。
      */
     @GET(ApiConstants.ENDPOINT_MULTIMEDIA)
     Call<DownloadLinkResponse> getFileDownloadLink(
             @Query("method") String method,
             @Query("access_token") String accessToken,
             @Query("fsids") String fsids,
-            @Query("dlink") int dlink  // 添加 dlink 参数，1 表示请求下载链接
+            @Query("dlink") int dlink,  // 添加 dlink 参数，1 表示请求下载链接
+            @Header(RetryInterceptor.SILENT_HEADER) @Nullable String silent
     );
 
     /**

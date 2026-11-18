@@ -81,7 +81,7 @@ public final class CloudBackupRepository {
         String token = requireToken();
         String dlink;
         try {
-            Call<DownloadLinkResponse> call = service.getFileDownloadLink("filemetas", token, "[" + fsId + "]", 1);
+            Call<DownloadLinkResponse> call = service.getFileDownloadLink("filemetas", token, "[" + fsId + "]", 1, null);
             retrofit2.Response<DownloadLinkResponse> meta = call.execute();
             DownloadLinkResponse body = meta.isSuccessful() ? meta.body() : null;
             if (body == null || body.getErrno() != 0 || body.getList() == null || body.getList().isEmpty()

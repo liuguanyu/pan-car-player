@@ -108,6 +108,50 @@ public class NextUpPreloaderTest {
     }
 
     @Test
+    public void inFlightPrefetchSurvivesQueueChange() {
+        // 切歌瞬间不应把在途预取取消掉：那等于白跑一次请求再加一次请求。
+        PlaybackQueue queue = new PlaybackQueue();
+        queue.setSongs(songs(4));
+        final FakeRepo repo = new FakeRepo();
+        final java.util.List<Long> cancelled = new java.util.ArrayList<>();
+        DownloadUrlRepository pendingRepo = new DownloadUrlRepository() {
+            @Override
+            public Cancellable resolve(long fsId, Callback callback) {
+                return resolvePrefetch(fsId, callback);
+            }
+
+            @Override
+            public Cancellable resolvePrefetch(long fsId, Callback callback) {
+                repo.requested.add(fsId);
+                final long f = fsId;
+                return () -> cancelled.add(f);
+            }
+
+            @Override
+            public String getCachedUrl(long fsId) {
+                return null;
+            }
+        };
+        NextUpPreloader preloader = new NextUpPreloader(queue, pendingRepo);
+        preloader.setEnabled(true);
+
+        queue.moveTo(1); // 切歌：下一个目标变成 1002
+        assertEquals(2, repo.requested.size());
+        assertEquals(1002L, repo.requested.get(1).longValue());
+        assertTrue("队列变更不取消在途预取", cancelled.isEmpty());
+
+        // 同一目标不会重复发请求
+        queue.setMode(PlaybackQueue.Mode.ORDER);
+        assertEquals(2, repo.requested.size());
+
+        // 停用（暂停/缓冲）才真正取消
+        preloader.setEnabled(false);
+        assertEquals(2, cancelled.size());
+        assertTrue(cancelled.contains(1001L));
+        assertTrue(cancelled.contains(1002L));
+    }
+
+    @Test
     public void disableCancelsInFlightPrefetch() {
         PlaybackQueue queue = new PlaybackQueue();
         queue.setSongs(songs(3));

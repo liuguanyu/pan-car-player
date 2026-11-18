@@ -9,8 +9,12 @@ import com.baidu.carplayer.model.DownloadLinkResponse;
 import com.baidu.carplayer.model.FileListResponse;
 import com.baidu.carplayer.model.TokenResponse;
 import com.baidu.carplayer.network.BaiduPanService;
+import com.baidu.carplayer.network.RetryInterceptor;
 
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,11 +29,14 @@ import retrofit2.Response;
 /**
  * 下载链接缓存行为：首次取数、命中缓存、evict 强制重取、换 token 清空。
  */
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 34)
 public class BaiduDownloadUrlCacheTest {
 
     /** 只实现 getFileDownloadLink 的假网盘服务，统计请求次数。 */
     private static class FakePanService implements BaiduPanService {
         int filemetasCalls = 0;
+        final List<String> silentFlags = new ArrayList<>();
         final DownloadLinkResponse response = new DownloadLinkResponse();
 
         FakePanService(String dlink) {
@@ -42,8 +49,9 @@ public class BaiduDownloadUrlCacheTest {
 
         @Override
         public Call<DownloadLinkResponse> getFileDownloadLink(
-                String method, String accessToken, String fsids, int dlink) {
+                String method, String accessToken, String fsids, int dlink, String silent) {
             filemetasCalls++;
+            silentFlags.add(silent);
             return new ImmediateCall<>(response);
         }
 
@@ -119,6 +127,33 @@ public class BaiduDownloadUrlCacheTest {
         repo.evict(2L);
         resolve(repo, 1L);
         assertEquals("evict 只影响指定 fsId", 2, service.filemetasCalls);
+    }
+
+    @Test
+    public void prefetchAndForegroundShareOneInFlightRequest() throws Exception {
+        FakePanService service = new FakePanService("http://cdn/file?a=1");
+        BaiduDownloadUrlRepository repo = new BaiduDownloadUrlRepository(service, () -> "tok");
+
+        AtomicReference<String> prefetched = new AtomicReference<>();
+        repo.resolvePrefetch(7L, new DownloadUrlRepository.Callback() {
+            @Override public void onSuccess(String playableUrl) { prefetched.set(playableUrl); }
+            @Override public void onError(String message, boolean authExpired, Throwable cause) { }
+        });
+        assertEquals("预取请求带静默标记（失败不重试）",
+                RetryInterceptor.SILENT_REQUEST, service.silentFlags.get(0));
+
+        // 预取落地后缓存已就绪：前台切歌零请求
+        assertEquals(prefetched.get(), repo.getCachedUrl(7L));
+        resolve(repo, 7L);
+        assertEquals("预取与前台共用一次请求", 1, service.filemetasCalls);
+    }
+
+    @Test
+    public void foregroundResolveDoesNotCarrySilentFlag() throws Exception {
+        FakePanService service = new FakePanService("http://cdn/file");
+        BaiduDownloadUrlRepository repo = new BaiduDownloadUrlRepository(service, () -> "tok");
+        resolve(repo, 3L);
+        assertNull("前台请求允许重试", service.silentFlags.get(0));
     }
 
     private static String resolve(DownloadUrlRepository repo, long fsId) throws Exception {

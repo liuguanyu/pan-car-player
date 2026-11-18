@@ -109,7 +109,7 @@ public final class BaiduLyricsRepository implements LyricsRepository {
         if (fsId == null) throw new LyricsException("未找到歌词文件: " + lrcName);
 
         Response<DownloadLinkResponse> meta = panService
-                .getFileDownloadLink("filemetas", token, "[" + fsId + "]", 1).execute();
+                .getFileDownloadLink("filemetas", token, "[" + fsId + "]", 1, null).execute();
         if (cancelled.get()) return null;
         DownloadLinkResponse body = meta.isSuccessful() ? meta.body() : null;
         if (body == null || body.getErrno() != 0 || body.getList() == null || body.getList().isEmpty()
