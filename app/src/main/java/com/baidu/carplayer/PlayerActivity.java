@@ -213,9 +213,9 @@ public class PlayerActivity extends AppCompatActivity {
         speedText = findViewById(R.id.speed_text);
         speedUnit = findViewById(R.id.speed_unit);
         if (speedUnit != null) {
-            // 单位比数字小一号，并且不画鬼影（否则小字糊成一片）
-            float dot = getResources().getDisplayMetrics().scaledDensity * 2.2f;
-            speedUnit.setDotSize(dot);
+            // 单位比数字小一号、更细，不画鬼影（小尺寸下鬼影会糊）
+            float sp = getResources().getDisplayMetrics().scaledDensity;
+            speedUnit.setSize(sp * 1.6f, sp * 5f, sp * 9f, sp * 2.6f);
             speedUnit.setGhost(false);
             speedUnit.setText("KM/H");
             speedUnit.setDigitColor(0xffb9c6d8);
@@ -891,12 +891,15 @@ public class PlayerActivity extends AppCompatActivity {
             if (speedUnit != null) speedUnit.setVisibility(show ? View.VISIBLE : View.GONE);
             if (show) {
                 // 四舍五入：87.6 应显示 88，而不是被截断成 87
-                if (speedText.getText().isEmpty()) {
-                    // 数字尺寸按高度比例设定一次，保证和标题栏协调
-                    speedText.setDotSize(getResources().getDisplayMetrics().scaledDensity * 4f);
-                    speedText.setDigitColor(0xffffffff);
+                boolean first = speedText.getText().isEmpty();
+                if (first) {
+                    // 数字尺寸只设一次，保证和标题栏协调
+                    float sp = getResources().getDisplayMetrics().scaledDensity;
+                    speedText.setSize(sp * 2.6f, sp * 8.5f, sp * 17f, sp * 4.2f);
                 }
-                speedText.setText(String.format(Locale.getDefault(), "%d", Math.round(kmh)));
+                speedText.setDigitColor(com.baidu.carplayer.vehicle.SpeedTheme.accent(kmh));
+                // 首帧直接显示，之后像里程表一样滚动到新车速
+                speedText.setTextNumber(Math.round(kmh), !first);
                 speedText.setDigitColor(com.baidu.carplayer.vehicle.SpeedTheme.accent(kmh));
             }
         }
