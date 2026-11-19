@@ -3,12 +3,15 @@ package com.baidu.carplayer.visualizer;
 /**
  * GPU 月夜海浪。
  *
- * <p>真正的透视海面：每个像素发射相机射线，用不动点迭代求射线与<b>起伏水面</b>的交点
+ * <p>海面是真正的透视海面：每个像素发射相机射线，用 Newton 迭代求射线与<b>起伏水面</b>的交点
  * （不是与平海面求交），因此浪脊会挡住它后面的浪谷，海面在竖直方向出现真实的隆起／凹陷。
  *
  * <p>高度场由 5 组方向不同的涌浪叠加，高度与梯度都解析求出（不用差分，不会被采样步长抹平），
  * 再按频率做距离衰减（LOD）避免远处摩尔纹。法线用于 Blinn-Phong 月光高光、
  * Fresnel 天空反射、迎光浪脊与泡沫。
+ *
+ * <p>远处有一艘帆船剪影，它是"海在动"的主要参考物：船的升沉直接取所在世界点的波高，
+ * 横摇取该点的波面坡度，帆的鼓起与桅灯的闪动跟音乐的低频／能量／节拍挂钩。
  */
 final class WaveGlShaders {
     private WaveGlShaders() {}
@@ -24,6 +27,7 @@ final class WaveGlShaders {
             + "uniform float uTime,uEnergy,uBass,uKick,uAspect,uPeriod;\n"
             + "uniform sampler2D uHistory; uniform int uHistoryHead;\n"
 
+            + "float saturate(float x){return clamp(x,0.,1.);}\n"
             + "float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}\n"
 
             // 5 组方向不同的涌浪：返回归一化高度 [-1,1]，grad 是它对世界坐标的梯度。
@@ -52,6 +56,27 @@ final class WaveGlShaders {
             + " float row=(float(uHistoryHead)+.5)/48.;\n"
             + " return texture(uHistory,vec2(u,row)).r; }\n"
 
+            // ---------- 帆船几何（船体局部坐标：x 向右，y 向上，原点在水线中心） ----------
+            // 凸多边形内部的有向距离：对每条边取到内侧的距离，取最小值；越界为负。
+            + "float sdEdge(vec2 p,vec2 a,vec2 b){\n"
+            + " float ex=b.x-a.x, ey=b.y-a.y;\n"
+            + " return dot(p-a,vec2(-ey,ex)/max(1e-7,sqrt(ex*ex+ey*ey))); }\n"
+            + "float tri(vec2 p,vec2 a,vec2 b,vec2 c,float aa){\n"
+            + " float d=min(sdEdge(p,a,b),min(sdEdge(p,b,c),sdEdge(p,c,a)));\n"
+            + " return smoothstep(-aa,aa,d); }\n"
+            + "float quad(vec2 p,vec2 a,vec2 b,vec2 c,vec2 e,float aa){\n"
+            + " float d=min(min(sdEdge(p,a,b),sdEdge(p,b,c)),min(sdEdge(p,c,e),sdEdge(p,e,a)));\n"
+            + " return smoothstep(-aa,aa,d); }\n"
+            // 船体 + 桅杆 + 主帆 + 前帆。返回 (船体, 帆) 两个覆盖度，便于分别着色。
+            + "vec2 boatMask(vec2 p,float wind,float aa){\n"
+            // 主帆在桅杆左侧，又高又宽；前帆在右侧，更矮更窄 —— 不对称才像帆船
+            + " float big=.046+wind, small=.030+wind*.6;\n"
+            + " float hull =quad(p,vec2(-.032,-.011),vec2(.030,-.011),vec2(.038,.011),vec2(-.038,.011),aa);\n"
+            + " float mast =quad(p,vec2(-.0046,.010),vec2(-.0024,.010),vec2(-.0024,.150),vec2(-.0046,.150),aa);\n"
+            + " float mains= tri(p,vec2(-.0035,.144),vec2(-.0035-big,.013),vec2(-.0035,.013),aa);\n"
+            + " float jib  = tri(p,vec2(-.0035,.098),vec2(-.0035,.013),vec2(-.0035+small,.013),aa);\n"
+            + " return vec2(max(hull,mast),max(mains,jib)); }\n"
+
             + "void main(){\n"
             + " float spread=1.0, pitch=.075, camH=.95;\n"
             + " float dx=vUv.x-.5; float dy=(vUv.y-.5)*spread-pitch;\n"
@@ -65,16 +90,16 @@ final class WaveGlShaders {
             + " vec2 moonPos=vec2(.70,.855);\n"
             + " float md=length((vUv-moonPos)*vec2(uAspect,1.));\n"
             + " sky+=vec3(.14,.18,.38)*exp(-md*8.)+vec3(.95,.97,1.)*(1.-smoothstep(.028,.034,md));\n"
++ " float band=exp(-pow((vUv.x-moonPos.x)*uAspect,2.)*13.);\n"
             + " vec3 col=sky;\n"
 
             // ---------- 海面 ----------
             + " if(dy<-.002){\n"
             + "  float spc=specAt(vUv.x);\n"
-            + "  float amp=.46+.14*uBass+.22*uEnergy+.08*spc;\n"             // 波幅（世界单位）
+            + "  float amp=.46+.14*uBass+.22*uEnergy+.08*spc;\n"              // 波幅（世界单位）
             + "  float chop=.22+.35*uEnergy;\n"
-            // 不动点迭代：s = (camH - h(worldPoint(s))) / (-dy)，收敛到与起伏水面的交点
-            + "  float s=camH/(-dy); vec2 gp;\n"
             // Newton 迭代求射线与起伏水面的交点。f(s)=camH+dy*s-h，f'(s)=dy-amp*(grad·dir)
+            + "  float s=camH/(-dy); vec2 gp;\n"
             + "  for(int i=0;i<5;i++){\n"
             + "   float e=waveField(vec2(dx*s,s),chop,s*.008,gp)*amp;\n"
             + "   float f=camH+dy*s-e;\n"
@@ -99,7 +124,7 @@ final class WaveGlShaders {
             + "  vec3 deep=vec3(.013,.032,.080), crestCol=vec3(.15,.32,.58);\n"
             + "  vec3 water=mix(deep,crestCol,smoothstep(-.45,.80,hn))*lit;\n"
             + "  water*=clamp(1.+.38*hn,.68,1.30);\n"
-            // 迎光浪脊：这是"起伏"最主要的视觉线索
+            // 迎光浪脊
             + "  float ridge=smoothstep(.10,.70,hn)*max(0.,dot(n,light));\n"
             + "  water+=vec3(.10,.18,.34)*ridge*(.35+.45*uEnergy);\n"
             // Fresnel：掠射角（远处）反射天色，地平线自然变亮
@@ -107,14 +132,67 @@ final class WaveGlShaders {
             + "  water=mix(water,vec3(.085,.105,.235),fres*.75);\n"
             // 月光镜面高光
             + "  float spec=pow(max(0.,dot(n,half1)),96.);\n"
-            + "  float band=exp(-pow((vUv.x-moonPos.x)*uAspect,2.)*13.);\n"
-            + "  water+=vec3(1.,.97,.90)*spec*(.30+.40*uEnergy)*(.30+.85*band)*(1.-fog);\n"
+                        + "  water+=vec3(1.,.97,.90)*spec*(.30+.40*uEnergy)*(.30+.85*band)*(1.-fog);\n"
             // 泡沫：被月光打亮的浪尖
             + "  float foam=smoothstep(.70,.98,hn)*(.12+.32*uEnergy+.15*uKick);\n"
             + "  water+=vec3(.72,.80,.95)*foam*.28*mix(.35,1.,band);\n"
             // 距离雾：远处融进地平线冷光
             + "  water=mix(water,vec3(.075,.085,.20),fog*.85);\n"
             + "  col=mix(water,sky,1.-smoothstep(.002,.024,-dy));\n"
+            + " }\n"
+
+            // ---------- 帆船 ----------
+            // 船锚定在世界空间的一点上，升沉与横摇都取自该点的波面，因此它随浪起伏。
+            // 声学关联：低频（uBass）决定浪的大小与升沉幅度，能量决定横摇与帆的鼓起，
+            // 节拍（uKick）给桅灯一次闪动，横摇频率跟随乐曲速度（uPeriod）。
+            + " {\n"
+            + "  vec2 bOrig=vec2(.275,.478);\n"
+            + "  float bdy=(bOrig.y-.5)*spread-pitch;\n"
+            + "  float bt=clamp(camH/max(.0015,-bdy),2.,60.);\n"
+            + "  vec2 bg; float bhn=waveField(vec2((bOrig.x-.5)*bt,bt),.22+.35*uEnergy,bt*.008,bg);\n"
+            + "  float bAmp=.46+.14*uBass+.22*uEnergy;\n"
+            // 世界高度差换算成屏幕位移：Δuv.y = -Δh/(t*spread)
+            // 浪峰抬高船体：Δuv.y = +Δh/(t*spread)
+            + "  float bob=(bhn*bAmp)/(bt*spread)*(.55+1.15*uBass)+.004*uKick;\n"
+            // 横摇：波面坡度给方向，能量给幅度，节拍周期给慢摆；总角度限制在约 ±12°
+            + "  float roll=bg.x*bAmp*.10*(.8+1.2*uEnergy)\n"
+            + "            +.035*sin(uTime*3.1416*2./max(.30,uPeriod/1000.)*.5);\n"
+            + "  roll=.21*tanh(roll/.21);\n"
+            + "  vec2 p=vUv-(bOrig+vec2(0.,bob));\n"
+            + "  float cr=cos(roll), sr=sin(roll);\n"
+            + "  p=vec2(cr*p.x+sr*p.y,-sr*p.x+cr*p.y)/1.30;\n"
+            + "  float aa=.9*max(dFdx(vUv.x),dFdy(vUv.y))/1.30;\n"
+            + "  float wind=.012*uEnergy+.008*uBass;\n"
+            // 倒影：上下翻转、随波纹抖动，比水面更暗
+            + "  vec2 rp=vec2(p.x,-p.y*1.15)+vec2(0.,.003*sin(uTime*2.1+p.x*90.));\n"
+            + "  vec2 rm=boatMask(rp,wind,aa*2.6);\n"
+            + "  col=mix(col,vec3(.020,.030,.060),max(rm.x,rm.y)*(.30+.22*band));\n"
+            + "  vec2 bm=boatMask(p,wind,aa);\n"
+            // 船身与桅杆：棕黄木材。沿船长方向排 3 条船板缝，用两组不同频率的细纹做木纹。
+            + "  float hullT=saturate((p.y+.011)/.022);\n"                       // 0=水线 1=舷缘
+            + "  float grain=.5+.5*sin(p.x*210.+sin(p.x*47.+p.y*160.)*2.1);\n"  // 木纹
+            + "  grain*=.6+.4*sin(p.y*640.+p.x*33.);\n"                         // 竖向细纤维
+            + "  float plank=abs(fract(p.y*46.+.5)-.5)*2.;\n"                   // 船板缝
+            + "  float seam=smoothstep(.72,.96,plank);\n"
+            + "  vec3 wood=mix(vec3(.20,.125,.052),vec3(.44,.300,.135),hullT*.55+grain*.45);\n"
+            + "  wood*=1.-seam*.45;\n"                                         // 板缝压暗
+            + "  wood+=vec3(.16,.10,.03)*grain*.30;\n"                          // 木纹高光
+            + "  col=mix(col,wood,bm.x*.97);\n"
+            // 帆：白灰色布料。受光面偏暖白，背光面偏冷灰；帆脚与桅杆侧压暗，帆缘更亮。
+            + "  vec2 bmE=boatMask(p,wind,aa*4.5);\n"
+            + "  float edge=saturate(bmE.y-bm.y);\n"
+            + "  float lit=smoothstep(.006,.130,p.y)*.55+smoothstep(-.052,.030,p.x)*.45;\n"
+            + "  vec3 sailCol=mix(vec3(.34,.36,.40),vec3(.74,.74,.71),lit);\n"
+            + "  sailCol+=vec3(.30,.29,.26)*edge*.55;\n"                        // 帆缘透光
+            + "  float cloth=.5+.5*sin(p.x*150.+p.y*70.);\n"                     // 布纹
+            + "  sailCol*=1.-cloth*.05;\n"
+            + "  col=mix(col,sailCol,saturate(bm.y*.94));\n"
+            // 帆缘的月光边：让轮廓从夜色里浮出来
+            + "  vec2 bmWide=boatMask(p,wind,aa*3.2);\n"
+            + "  col+=vec3(.26,.28,.30)*(max(bmWide.x,bmWide.y)-max(bm.x,bm.y))*.42;\n"
+            // 桅灯：随节拍闪动
+            + "  vec2 lampP=(p-vec2(-.0035,.1515))/vec2(.010,.010);\n"
+            + "  col+=vec3(1.,.93,.74)*exp(-dot(lampP,lampP)*2.0)*(.10+.85*uKick);\n"
             + " }\n"
 
             + " float vig=smoothstep(1.20,.30,length((vUv-.5)*vec2(uAspect*.60,1.)));\n"
