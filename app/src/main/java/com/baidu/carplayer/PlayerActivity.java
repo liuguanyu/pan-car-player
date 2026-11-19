@@ -105,6 +105,7 @@ public class PlayerActivity extends AppCompatActivity {
     private com.baidu.carplayer.widget.VisualizerView visualizerView;
     private com.baidu.carplayer.widget.ParticleGlView particleGlView;
     private com.baidu.carplayer.widget.WaveGlView waveGlView;
+    private com.baidu.carplayer.widget.ThunderGlView thunderGlView;
     private boolean glSupported;
     private final com.baidu.carplayer.visualizer.VisualizerCoordinator visualizerCoordinator =
             new com.baidu.carplayer.visualizer.VisualizerCoordinator(visualizerManager);
@@ -235,6 +236,8 @@ public class PlayerActivity extends AppCompatActivity {
         particleGlView.attach(visualizerManager);
         waveGlView = findViewById(R.id.wave_gl_view);
         waveGlView.attach(visualizerManager);
+        thunderGlView = findViewById(R.id.thunder_gl_view);
+        thunderGlView.attach(visualizerManager);
         glSupported = com.baidu.carplayer.widget.ParticleGlView.isSupported(this);
         String preferred = getSharedPreferences("player_visualizer", MODE_PRIVATE)
                 .getString("mode", "default");
@@ -710,6 +713,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (visualizerView != null) visualizerView.setActive(false);
         if (particleGlView != null) particleGlView.setActive(false);
         if (waveGlView != null) waveGlView.setActive(false);
+        if (thunderGlView != null) thunderGlView.setActive(false);
         if (speedMonitor != null) { speedMonitor.stop(); speedMonitor = null; }
         if (serviceBound) {
             audioPlayerService.unsubscribePlaybackState(playbackStateSubscriber);
@@ -946,16 +950,19 @@ public class PlayerActivity extends AppCompatActivity {
         String selectedMode = com.baidu.carplayer.visualizer.VisualizerManager.MODES[visualizerMode];
         boolean useParticleGl = show && glSupported && "particles".equals(selectedMode);
         boolean useWaveGl = show && glSupported && "wave".equals(selectedMode);
-        boolean useGl = useParticleGl || useWaveGl;
+        boolean useThunderGl = show && glSupported && "thunder".equals(selectedMode);
+        boolean useGl = useParticleGl || useWaveGl || useThunderGl;
         visualizerView.setVisibility(show && !useGl ? View.VISIBLE : View.GONE);
         particleGlView.setVisibility(useParticleGl ? View.VISIBLE : View.GONE);
         waveGlView.setVisibility(useWaveGl ? View.VISIBLE : View.GONE);
+        thunderGlView.setVisibility(useThunderGl ? View.VISIBLE : View.GONE);
         rotatingDiscView.setVisibility(show ? View.GONE : View.VISIBLE);
         rotatingTextView.setVisibility(show ? View.GONE : View.VISIBLE);
         particleBackgroundView.setVisibility(show ? View.GONE : View.VISIBLE);
         visualizerView.setActive(!useGl && visualizerCoordinator.isRendering());
         particleGlView.setActive(useParticleGl && visualizerCoordinator.isRendering());
         waveGlView.setActive(useWaveGl && visualizerCoordinator.isRendering());
+        thunderGlView.setActive(useThunderGl && visualizerCoordinator.isRendering());
         particleBackgroundView.setPlaying(!show && playing);
     }
 
