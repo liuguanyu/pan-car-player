@@ -27,7 +27,7 @@ public final class WaveGlRenderer implements GLSurfaceView.Renderer {
     private static final float BOAT_MIN_X = -0.12f, BOAT_MAX_X = 1.12f;
 
     public interface FftSource { byte[] latest(); int epoch(); }
-    public interface TempoSource { float periodMs(); }
+    public interface TempoSource { double beatPosition(long nowMs); float periodMs(); }
     public interface IdleListener { void onIdle(); }
 
     private volatile FftSource source;
@@ -39,6 +39,7 @@ public final class WaveGlRenderer implements GLSurfaceView.Renderer {
     private int epoch = Integer.MIN_VALUE, w = 1, h = 1, program, vao, tex, head;
     private long lastNs, lastFft;
     private float time, energy, bass, kick, loudness;
+    private double lastBeatPos;
     /** 风：loudEnv 是响度包络，gust 是鼓点阵风冲量，wind 是最终平滑后的风力。 */
     private float loudEnv, gust, wind = 0.25f;
     private float boatX = 0.27f;
@@ -85,7 +86,7 @@ public final class WaveGlRenderer implements GLSurfaceView.Renderer {
         // 用全 0 初始化，否则未定义内容会在海面上显示成矩形块
         FloatBuffer zero = ByteBuffer.allocateDirect(HISTORY_W * HISTORY_H * 4)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_R32F, HISTORY_W, HISTORY_H, 0,
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_R16F, HISTORY_W, HISTORY_H, 0,
                 GLES30.GL_RED, GLES30.GL_FLOAT, zero);
         GLES30.glEnable(GLES30.GL_BLEND);
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE);
@@ -104,11 +105,23 @@ public final class WaveGlRenderer implements GLSurfaceView.Renderer {
         lastNs = now;
         time += dt;
 
-        float kickBefore = kick;
+        boolean beat = false;
+        TempoSource t = tempo;
+        if (t != null) {
+            double pos = t.beatPosition(System.currentTimeMillis());
+            double frac = pos - Math.floor(pos);
+            double lastFrac = lastBeatPos - Math.floor(lastBeatPos);
+            // 跨越整数拍点：从 0.9x → 0.0x 或精确命中 0
+            if ((lastFrac > 0.85 && frac < 0.15) || (frac < 0.02 && lastFrac > frac)) {
+                beat = true;
+                kick = Math.min(1.2f, kick + .5f);
+            }
+            lastBeatPos = pos;
+        }
         update();
         kick *= (float) Math.pow(.90, dt * 60);
         energy += (((bass + loudness) * .5f > .003f ? 1f : 0f) - energy) * .18f;
-        updateWind(dt, kick > kickBefore + .2f);
+        updateWind(dt, beat);
         updateBoat(dt);
 
         GLES30.glClearColor(.004f, .006f, .012f, 1);
@@ -124,8 +137,8 @@ public final class WaveGlRenderer implements GLSurfaceView.Renderer {
         GLES30.glUniform1f(uBass, bass);
         GLES30.glUniform1f(uKick, kick);
         GLES30.glUniform1f(uAspect, w / (float) h);
-        TempoSource t = tempo;
-        GLES30.glUniform1f(uPeriod, t == null ? 500 : t.periodMs());
+        TempoSource tempoSource = tempo;
+        GLES30.glUniform1f(uPeriod, tempoSource == null ? 500 : tempoSource.periodMs());
         GLES30.glUniform1f(uWind, wind);
         GLES30.glUniform1f(uBoatX, boatX);
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3);
@@ -151,7 +164,6 @@ public final class WaveGlRenderer implements GLSurfaceView.Renderer {
         }
         bass += (Math.min(1, low / 32 * 2.2f) - bass) * .3f;
         loudness = Math.min(1, total / HISTORY_W * 3);
-        if (loudness > energy + .04f) kick = Math.min(1.2f, kick + .5f);
 
         long ms = System.currentTimeMillis();
         if (ms - lastFft > 45) {

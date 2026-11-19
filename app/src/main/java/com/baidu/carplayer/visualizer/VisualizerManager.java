@@ -67,6 +67,8 @@ public final class VisualizerManager implements VisualizerCoordinator.Capture {
     public byte[] latestFft() { return playing ? lastFft : EMPTY; }
     public int epoch() { return epoch; }
     public float periodMs() { return beats.periodMs(); }
+    public double beatPosition(long nowMs) { return beats.beatPosition(nowMs); }
+    public float beatConfidence(long nowMs) { return beats.confidence(nowMs); }
 
     public void switchTo(String mode) {
         epoch++;
