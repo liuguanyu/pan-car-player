@@ -600,13 +600,31 @@ public class PlayerActivity extends AppCompatActivity {
                 ? "\n已配置自动重连：" + configured
                 : "\n尚未配置自动重连");
 
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Wi-Fi / 热点")
                 .setMessage(msg.toString())
                 .setPositiveButton("重连热点", (d, w) -> reconnectHotspot(connected))
                 .setNeutralButton("配置自动重连", (d, w) -> showConfigureDialog(configured))
                 .setNegativeButton("关闭", null)
-                .show();
+                .create();
+        dialog.show();
+        leftAlignButtons(dialog);
+    }
+
+    /** 对话框按钮栏默认右对齐；车载上从左扫视，改为左对齐。
+     *  appcompat 的按钮栏里 neutral 和 negative/positive 之间有一个带权重的 Space，
+     *  单设 gravity 不够，要把 Space 拿掉。 */
+    private void leftAlignButtons(AlertDialog dialog) {
+        View bar = dialog.findViewById(androidx.appcompat.R.id.buttonPanel);
+        if (bar instanceof android.widget.LinearLayout) {
+            android.widget.LinearLayout panel = (android.widget.LinearLayout) bar;
+            for (int i = panel.getChildCount() - 1; i >= 0; i--) {
+                if (panel.getChildAt(i) instanceof android.widget.Space) {
+                    panel.removeViewAt(i);
+                }
+            }
+            panel.setGravity(android.view.Gravity.START);
+        }
     }
 
     /**
@@ -639,25 +657,41 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     /** 配置（或修改）自动重连的热点：SSID + 密码，存本地并注册给系统。 */
+    /** 配置对话框的输入框：白字 18sp、浅灰 hint、圆角描边底框，深色底上看得清。 */
+    private EditText styledInput(String hint) {
+        EditText e = new EditText(this);
+        e.setHint(hint);
+        e.setHintTextColor(0x80ffffff);
+        e.setTextColor(0xffffffff);
+        e.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18f);
+        e.setSingleLine();
+        e.setBackgroundResource(R.drawable.bg_dialog_input);
+        int h = (int) (18 * getResources().getDisplayMetrics().density);
+        int v = (int) (16 * getResources().getDisplayMetrics().density);
+        e.setPadding(h, v, h, v);
+        e.setTypeface(e.getTypeface(), android.graphics.Typeface.NORMAL);
+        return e;
+    }
+
     private void showConfigureDialog(String existingSsid) {
-        EditText ssidInput = new EditText(this);
-        ssidInput.setHint("热点名称（SSID）");
+        EditText ssidInput = styledInput("热点名称（SSID）");
         ssidInput.setText(existingSsid == null ? "" : existingSsid);
-        ssidInput.setSingleLine();
-        ssidInput.setPadding(60, 36, 60, 12);
-        EditText passInput = new EditText(this);
-        passInput.setHint("热点密码（8 位以上）");
+        EditText passInput = styledInput("热点密码（8 位以上）");
         String oldPass = com.baidu.carplayer.network.HotspotManager.loadPass(this);
         passInput.setText(existingSsid != null && oldPass != null ? oldPass : "");
         passInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        passInput.setSingleLine();
-        passInput.setPadding(60, 36, 60, 36);
         android.widget.LinearLayout box = new android.widget.LinearLayout(this);
         box.setOrientation(android.widget.LinearLayout.VERTICAL);
         box.addView(ssidInput);
-        box.addView(passInput);
+        int gap = (int) (18 * getResources().getDisplayMetrics().density);
+        android.widget.LinearLayout.LayoutParams lp =
+                new android.widget.LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = gap;
+        box.addView(passInput, lp);
+        int pad = (int) (24 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, (int) (pad * .5f), pad, 0);
 
-        new AlertDialog.Builder(this)
+        AlertDialog.Builder cfgBuilder = new AlertDialog.Builder(this)
                 .setTitle("配置热点自动重连")
                 .setMessage("填写手机热点的名称和密码。保存后系统会在热点范围内自动连接，无需 App 常驻。")
                 .setView(box)
@@ -675,8 +709,10 @@ public class PlayerActivity extends AppCompatActivity {
                     Toast.makeText(this, ok ? "已保存，系统会在热点范围内自动连接" : "已保存，但注册失败，请点“重连热点”试一次", Toast.LENGTH_LONG).show();
                     updateWifiButton();
                 })
-                .setNegativeButton("取消", null)
-                .show();
+                .setNegativeButton("取消", null);
+        AlertDialog cfgDialog = cfgBuilder.create();
+        cfgDialog.show();
+        leftAlignButtons(cfgDialog);
     }
     
     /**
