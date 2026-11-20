@@ -471,7 +471,11 @@ public class PlayerActivity extends AppCompatActivity {
         // 更新歌曲信息（使用去除扩展名的标题）
         String displayTitle = song.getTitleWithoutExtension();
         songTitle.setText(displayTitle);
-        songAlbum.setText(song.getAlbum());
+        String album = song.getAlbum();
+        boolean hasAlbum = album != null && !album.trim().isEmpty();
+        songAlbum.setText(hasAlbum ? album : "");
+        // 专辑名可能为空；留着会占着右侧的 marginEnd，把后面的音频信息推右
+        songAlbum.setVisibility(hasAlbum ? View.VISIBLE : View.GONE);
         if (rotatingDiscView != null) {
             rotatingDiscView.setTitle(displayTitle);
         }

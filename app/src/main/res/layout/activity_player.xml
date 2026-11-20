@@ -88,37 +88,50 @@
 
         </LinearLayout>
 
-        <!-- 第二行：专辑 + 音频信息小字，与标题左边对齐（返回按钮 48dp + 间距 16dp） -->
+        <!-- 第二行：专辑 + 音频信息小字。用与标题同构的左侧占位（返回按钮宽 + 间距），
+             避免手算偏移与标题列不齐 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginStart="64dp"
             android:gravity="center_vertical">
 
-            <TextView
-                android:id="@+id/song_album"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="专辑名称"
-                android:textSize="12sp"
-                android:includeFontPadding="false"
-                android:singleLine="true"
-                android:ellipsize="end"
-                android:textColor="@color/car_text_secondary"
-                android:layout_marginEnd="@dimen/spacing_normal" />
+            <View
+                android:layout_width="48dp"
+                android:layout_height="1dp" />
 
-            <!-- 音频信息显示 -->
-            <TextView
-                android:id="@+id/audio_info"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="加载中..."
-                android:textSize="12sp"
-                android:includeFontPadding="false"
-                android:textColor="@color/car_text_secondary"
-                android:singleLine="true"
-                android:ellipsize="end" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginStart="@dimen/spacing_normal">
+
+                <TextView
+                    android:id="@+id/song_album"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="专辑名称"
+                    android:textSize="12sp"
+                    android:includeFontPadding="false"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:textColor="@color/car_text_secondary"
+                    android:layout_marginEnd="@dimen/spacing_normal" />
+
+                <!-- 音频信息显示 -->
+                <TextView
+                    android:id="@+id/audio_info"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="加载中..."
+                    android:textSize="12sp"
+                    android:includeFontPadding="false"
+                    android:textColor="@color/car_text_secondary"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
@@ -274,6 +287,16 @@
                 android:gravity="end">
 
                 <ImageButton
+                    android:id="@+id/visualizer_button"
+                    android:layout_width="@dimen/icon_button_size"
+                    android:layout_height="@dimen/icon_button_size"
+                    android:src="@drawable/ic_visualizer"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="切换音频可视化"
+                    app:tint="@android:color/white"
+                    android:layout_marginEnd="@dimen/spacing_medium" />
+
+                <ImageButton
                     android:id="@+id/play_mode_button"
                     android:layout_width="@dimen/icon_button_size"
                     android:layout_height="@dimen/icon_button_size"
@@ -336,15 +359,6 @@
                     android:contentDescription="音量"
                     app:tint="@android:color/white"
                     android:layout_marginStart="@dimen/spacing_large" />
-
-                <ImageButton
-                    android:id="@+id/visualizer_button"
-                    android:layout_width="@dimen/icon_button_size"
-                    android:layout_height="@dimen/icon_button_size"
-                    android:src="@drawable/ic_visualizer"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="切换音频可视化"
-                    app:tint="@android:color/white" />
 
                 <ImageButton
                     android:id="@+id/playlist_button"
