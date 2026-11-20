@@ -4,11 +4,13 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.util.Log;
 import android.text.Editable;
+import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.View;
 import android.widget.EditText;
@@ -19,6 +21,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -96,6 +99,7 @@ public class PlayerActivity extends AppCompatActivity {
     private ImageButton playModeButton;
     private ImageButton volumeButton;
     private ImageButton playlistButton;
+    private ImageButton wifiButton;
     private LrcView lrcView;
     private RotatingDiscView rotatingDiscView;
     private com.baidu.carplayer.widget.RotatingTextView rotatingTextView;
@@ -225,6 +229,7 @@ public class PlayerActivity extends AppCompatActivity {
         nextButton = findViewById(R.id.next_button);
         playModeButton = findViewById(R.id.play_mode_button);
         volumeButton = findViewById(R.id.volume_button);
+        wifiButton = findViewById(R.id.wifi_button);
         lrcView = findViewById(R.id.lrc_view);
         rotatingDiscView = findViewById(R.id.rotating_disc);
         rotatingTextView = findViewById(R.id.rotating_text);
@@ -262,6 +267,7 @@ public class PlayerActivity extends AppCompatActivity {
         nextButton.setOnClickListener(v -> playNext());
         playModeButton.setOnClickListener(v -> togglePlayMode());
         volumeButton.setOnClickListener(v -> toggleMute());
+        wifiButton.setOnClickListener(v -> showWifiDialog());
         volumeButton.setOnLongClickListener(v -> {
             toggleVolumeControl();
             return true;
@@ -570,6 +576,107 @@ public class PlayerActivity extends AppCompatActivity {
             volumeButton.setImageResource(android.R.drawable.ic_lock_silent_mode_off);
             volumeButton.setContentDescription("静音");
         }
+    }
+
+    /** Wi-Fi 图标：已连接常亮，未连接半透明。页面可见时每次刷新。 */
+    private void updateWifiButton() {
+        if (wifiButton == null) return;
+        boolean connected = com.baidu.carplayer.network.HotspotManager.isWifiConnected(this);
+        wifiButton.setAlpha(connected ? 1f : 0.45f);
+        wifiButton.setContentDescription(connected ? "Wi-Fi 已连接" : "Wi-Fi 未连接，点击重连");
+    }
+
+    /**
+     * Wi-Fi 对话框：显示当前状态，提供「重连热点」和「配置热点（系统自动重连）」。
+     */
+    private void showWifiDialog() {
+        boolean connected = com.baidu.carplayer.network.HotspotManager.isWifiConnected(this);
+        String ssid = com.baidu.carplayer.network.HotspotManager.currentSsid(this);
+        String configured = com.baidu.carplayer.network.HotspotManager.loadSsid(this);
+        StringBuilder msg = new StringBuilder();
+        msg.append(connected ? "已连接" : "未连接");
+        if (ssid != null) msg.append("  ·  ").append(ssid);
+        msg.append(configured != null
+                ? "\n已配置自动重连：" + configured
+                : "\n尚未配置自动重连");
+
+        new AlertDialog.Builder(this)
+                .setTitle("Wi-Fi / 热点")
+                .setMessage(msg.toString())
+                .setPositiveButton("重连热点", (d, w) -> reconnectHotspot(connected))
+                .setNeutralButton("配置自动重连", (d, w) -> showConfigureDialog(configured))
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    /**
+     * 重连：先注册建议（档 2）+ reconnect（档 3），2.5 秒后检查是否连上，
+     * 没连上就打开系统 Wi-Fi 面板兜底。
+     */
+    private void reconnectHotspot(boolean alreadyConnected) {
+        if (alreadyConnected) {
+            Toast.makeText(this, "当前已连接 Wi-Fi", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String ssid = com.baidu.carplayer.network.HotspotManager.loadSsid(this);
+        String pass = com.baidu.carplayer.network.HotspotManager.loadPass(this);
+        if (ssid == null) {
+            showConfigureDialog(null);
+            return;
+        }
+        com.baidu.carplayer.network.HotspotManager.suggest(this, ssid, pass);
+        com.baidu.carplayer.network.HotspotManager.tryReconnect(this);
+        Toast.makeText(this, "正在重连 “" + ssid + "”…", Toast.LENGTH_SHORT).show();
+        new Handler(getMainLooper()).postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (com.baidu.carplayer.network.HotspotManager.isWifiConnected(this)) {
+                updateWifiButton();
+            } else {
+                Toast.makeText(this, "还未连上，已打开 Wi-Fi 面板", Toast.LENGTH_SHORT).show();
+                com.baidu.carplayer.network.HotspotManager.openWifiPanel(this);
+            }
+        }, 2500);
+    }
+
+    /** 配置（或修改）自动重连的热点：SSID + 密码，存本地并注册给系统。 */
+    private void showConfigureDialog(String existingSsid) {
+        EditText ssidInput = new EditText(this);
+        ssidInput.setHint("热点名称（SSID）");
+        ssidInput.setText(existingSsid == null ? "" : existingSsid);
+        ssidInput.setSingleLine();
+        ssidInput.setPadding(60, 36, 60, 12);
+        EditText passInput = new EditText(this);
+        passInput.setHint("热点密码（8 位以上）");
+        String oldPass = com.baidu.carplayer.network.HotspotManager.loadPass(this);
+        passInput.setText(existingSsid != null && oldPass != null ? oldPass : "");
+        passInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        passInput.setSingleLine();
+        passInput.setPadding(60, 36, 60, 36);
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.addView(ssidInput);
+        box.addView(passInput);
+
+        new AlertDialog.Builder(this)
+                .setTitle("配置热点自动重连")
+                .setMessage("填写手机热点的名称和密码。保存后系统会在热点范围内自动连接，无需 App 常驻。")
+                .setView(box)
+                .setPositiveButton("保存", (d, w) -> {
+                    String ssid = ssidInput.getText().toString().trim();
+                    String pass = passInput.getText().toString();
+                    String err = com.baidu.carplayer.network.HotspotManager.validate(ssid, pass);
+                    if (err != null) {
+                        Toast.makeText(this, err, Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    com.baidu.carplayer.network.HotspotManager.save(this, ssid, pass);
+                    boolean ok = com.baidu.carplayer.network.HotspotManager.suggest(this, ssid, pass);
+                    com.baidu.carplayer.network.HotspotManager.tryReconnect(this);
+                    Toast.makeText(this, ok ? "已保存，系统会在热点范围内自动连接" : "已保存，但注册失败，请点“重连热点”试一次", Toast.LENGTH_LONG).show();
+                    updateWifiButton();
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
     
     /**
@@ -993,6 +1100,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (speedMonitor != null && com.baidu.carplayer.vehicle.SpeedMonitor.hasPermission(this)) {
             speedMonitor.start();
         }
+        updateWifiButton();
     }
 
     @Override

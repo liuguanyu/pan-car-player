@@ -314,6 +314,16 @@
                     app:tint="@android:color/white" />
 
                 <ImageButton
+                    android:id="@+id/wifi_button"
+                    android:layout_width="@dimen/icon_button_size"
+                    android:layout_height="@dimen/icon_button_size"
+                    android:src="@drawable/ic_wifi"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Wi-Fi 热点重连"
+                    app:tint="@android:color/white"
+                    android:layout_marginStart="@dimen/spacing_small" />
+
+                <ImageButton
                     android:id="@+id/playlist_button"
                     android:layout_width="@dimen/icon_button_size"
                     android:layout_height="@dimen/icon_button_size"
