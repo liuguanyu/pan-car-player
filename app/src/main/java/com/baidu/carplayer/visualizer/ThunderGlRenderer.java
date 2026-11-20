@@ -1,5 +1,6 @@
 package com.baidu.carplayer.visualizer;
 
+import android.content.Context;
 import android.opengl.GLES30;
 import android.opengl.GLSurfaceView;
 import android.util.Log;
@@ -40,6 +41,7 @@ public final class ThunderGlRenderer implements GLSurfaceView.Renderer {
     private volatile IdleListener idle;
     private volatile boolean active;
 
+    private Context appContext;
     private boolean failed;
     private int w = 1, h = 1, epoch = Integer.MIN_VALUE;
     private int bgProgram, boltProgram, vao, segTex;
@@ -63,6 +65,9 @@ public final class ThunderGlRenderer implements GLSurfaceView.Renderer {
     private final FloatBuffer upload = ByteBuffer.allocateDirect(ThunderScene.CAP * ThunderScene.FLOATS * 4)
             .order(ByteOrder.nativeOrder()).asFloatBuffer();
 
+    /** 由 View 在 setRenderer 前注入，用于读取 res/raw 里的 GLSL。 */
+    public void setContext(Context context) { appContext = context.getApplicationContext(); }
+
     public void setFftSource(FftSource s) { source = s; }
     public void setTempoSource(TempoSource s) { tempo = s; }
     public void setIdleListener(IdleListener l) { idle = l; }
@@ -70,8 +75,11 @@ public final class ThunderGlRenderer implements GLSurfaceView.Renderer {
 
     @Override public void onSurfaceCreated(GL10 unused, EGLConfig config) {
         try {
-            bgProgram = link(ThunderShaders.BG_VERT, ThunderShaders.BG_FRAG);
-            boltProgram = link(ThunderShaders.BOLT_VERT, ThunderShaders.BOLT_FRAG);
+            if (appContext == null) throw new IllegalStateException("no context");
+            bgProgram = GlslLoader.program(appContext,
+                    com.baidu.carplayer.R.raw.thunder_bg_vert, com.baidu.carplayer.R.raw.thunder_bg_frag);
+            boltProgram = GlslLoader.program(appContext,
+                    com.baidu.carplayer.R.raw.thunder_bolt_vert, com.baidu.carplayer.R.raw.thunder_bolt_frag);
         } catch (RuntimeException e) {
             Log.e(TAG, "shader", e);
             failed = true;

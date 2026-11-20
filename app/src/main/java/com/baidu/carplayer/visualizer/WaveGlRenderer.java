@@ -1,5 +1,6 @@
 package com.baidu.carplayer.visualizer;
 
+import android.content.Context;
 import android.opengl.GLES30;
 import android.opengl.GLSurfaceView;
 import android.util.Log;
@@ -47,7 +48,11 @@ public final class WaveGlRenderer implements GLSurfaceView.Renderer {
             .order(ByteOrder.nativeOrder()).asFloatBuffer();
     private final float[] row = new float[HISTORY_W];
 
+    private Context appContext;
     private int uTime, uEnergy, uBass, uKick, uAspect, uPeriod, uHistory, uHead, uWind, uBoatX;
+
+    /** 由 View 在 setRenderer 前注入，用于读取 res/raw 里的 GLSL。 */
+    public void setContext(Context context) { appContext = context.getApplicationContext(); }
 
     public void setFftSource(FftSource s) { source = s; }
     public void setTempoSource(TempoSource s) { tempo = s; }
@@ -56,7 +61,9 @@ public final class WaveGlRenderer implements GLSurfaceView.Renderer {
 
     @Override public void onSurfaceCreated(GL10 unused, EGLConfig config) {
         try {
-            program = link(WaveGlShaders.VERT, WaveGlShaders.FRAG);
+            if (appContext == null) throw new IllegalStateException("no context");
+            program = GlslLoader.program(appContext,
+                    com.baidu.carplayer.R.raw.wave_vert, com.baidu.carplayer.R.raw.wave_frag);
         } catch (RuntimeException e) {
             Log.e(TAG, "shader", e);
             failed = true;

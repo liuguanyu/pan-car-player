@@ -11,7 +11,8 @@ import com.baidu.carplayer.visualizer.WaveGlRenderer;
 /** GLES 3.0 海浪视图：仅播放中连续渲染，停止后回落并暂停 GL 线程。 */
 public final class WaveGlView extends GLSurfaceView {
     private final WaveGlRenderer renderer=new WaveGlRenderer(); private boolean active,continuous;
-    public WaveGlView(Context c, AttributeSet a){super(c,a);setEGLContextClientVersion(3);setEGLConfigChooser(8,8,8,8,0,0);setPreserveEGLContextOnPause(true);setRenderer(renderer);setRenderMode(RENDERMODE_WHEN_DIRTY);renderer.setIdleListener(()->post(this::stop));}
+    public WaveGlView(Context c, AttributeSet a){super(c,a);setEGLContextClientVersion(3);setEGLConfigChooser(8,8,8,8,0,0);setPreserveEGLContextOnPause(true);renderer.setContext(c);   // 先注入 Context（读 res/raw GLSL），再挂 renderer
+        setRenderer(renderer);setRenderMode(RENDERMODE_WHEN_DIRTY);renderer.setIdleListener(()->post(this::stop));}
     public static boolean isSupported(Context c){ActivityManager a=(ActivityManager)c.getSystemService(Context.ACTIVITY_SERVICE);ConfigurationInfo i=a==null?null:a.getDeviceConfigurationInfo();return i!=null&&i.reqGlEsVersion>=0x30000;}
     public void attach(VisualizerManager m){renderer.setFftSource(new WaveGlRenderer.FftSource(){public byte[] latest(){return m.latestFft();}public int epoch(){return m.epoch();}});renderer.setTempoSource(new WaveGlRenderer.TempoSource() {
             @Override public double beatPosition(long nowMs) { return m.beatPosition(nowMs); }

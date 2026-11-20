@@ -1,5 +1,6 @@
 package com.baidu.carplayer.visualizer;
 
+import android.content.Context;
 import android.opengl.GLES30;
 import android.opengl.GLSurfaceView;
 import android.util.Log;
@@ -30,6 +31,9 @@ public final class ParticleGlRenderer implements GLSurfaceView.Renderer {
     /** 场景回落到静止且视图已不再需要动画时回调（GL 线程），视图据此停帧。 */
     public interface IdleListener { void onIdle(); }
 
+    /** 每环圆周点数（原 ParticleShaders.DOTS，已随 shader 迁移内联到 raw 资源）。 */
+    private static final int RING_DOTS = 240;
+    private Context appContext;
     private final ParticleScene scene = new ParticleScene();
     private volatile FftSource fftSource;
     private volatile TempoSource tempo;
@@ -54,6 +58,9 @@ public final class ParticleGlRenderer implements GLSurfaceView.Renderer {
 
     private final float[] tmp = new float[4];
 
+    /** 由 View 在 setRenderer 前注入，用于读取 res/raw 里的 GLSL。 */
+    public void setContext(Context context) { appContext = context.getApplicationContext(); }
+
     public void setFftSource(FftSource source) { fftSource = source; }
     public void setTempoSource(TempoSource source) { tempo = source; }
     public void setIdleListener(IdleListener l) { idleListener = l; }
@@ -64,10 +71,15 @@ public final class ParticleGlRenderer implements GLSurfaceView.Renderer {
     @Override
     public void onSurfaceCreated(GL10 unused, EGLConfig config) {
         try {
-            bgProg = link(ParticleShaders.BG_VERT, ParticleShaders.BG_FRAG);
-            ringProg = link(ParticleShaders.RING_VERT, ParticleShaders.RING_FRAG);
-            axisProg = link(ParticleShaders.AXIS_VERT, ParticleShaders.AXIS_FRAG);
-            glowProg = link(ParticleShaders.GLOW_VERT, ParticleShaders.GLOW_FRAG);
+            if (appContext == null) throw new IllegalStateException("no context");
+            bgProg = GlslLoader.program(appContext,
+                    com.baidu.carplayer.R.raw.particle_bg_vert, com.baidu.carplayer.R.raw.particle_bg_frag);
+            ringProg = GlslLoader.program(appContext,
+                    com.baidu.carplayer.R.raw.particle_ring_vert, com.baidu.carplayer.R.raw.particle_ring_frag);
+            axisProg = GlslLoader.program(appContext,
+                    com.baidu.carplayer.R.raw.particle_axis_vert, com.baidu.carplayer.R.raw.particle_axis_frag);
+            glowProg = GlslLoader.program(appContext,
+                    com.baidu.carplayer.R.raw.particle_glow_vert, com.baidu.carplayer.R.raw.particle_glow_frag);
         } catch (RuntimeException e) {
             Log.e(TAG, "着色器编译失败，粒子效果不可用", e);
             failed = true;
@@ -204,7 +216,7 @@ public final class ParticleGlRenderer implements GLSurfaceView.Renderer {
         GLES30.glUniform1f(uREnergy, scene.energy * 0.72f);
         GLES30.glUniform1f(uRCurve, scene.curveAmp);
         GLES30.glUniform1f(uRCurvePhase, scene.curvePhase);
-        GLES30.glDrawArraysInstanced(GLES30.GL_POINTS, 0, ParticleShaders.DOTS, ParticleScene.MAX_RINGS);
+        GLES30.glDrawArraysInstanced(GLES30.GL_POINTS, 0, RING_DOTS, ParticleScene.MAX_RINGS);
     }
 
     /** 光轴：实心粗白条 + 外层柔光；彗尾：沿轴向远端渐隐渐细。 */

@@ -14,7 +14,8 @@ public final class ThunderGlView extends GLSurfaceView {
     private boolean active, continuous;
     public ThunderGlView(Context c, AttributeSet a) {
         super(c, a); setEGLContextClientVersion(3); setEGLConfigChooser(8,8,8,8,0,0);
-        setPreserveEGLContextOnPause(true); setRenderer(renderer); setRenderMode(RENDERMODE_WHEN_DIRTY);
+        setPreserveEGLContextOnPause(true); renderer.setContext(c);   // 先注入 Context（读 res/raw GLSL），再挂 renderer
+        setRenderer(renderer); setRenderMode(RENDERMODE_WHEN_DIRTY);
         renderer.setIdleListener(() -> post(this::stop));
     }
     public static boolean isSupported(Context c) { ActivityManager a=(ActivityManager)c.getSystemService(Context.ACTIVITY_SERVICE); ConfigurationInfo i=a==null?null:a.getDeviceConfigurationInfo(); return i!=null&&i.reqGlEsVersion>=0x30000; }

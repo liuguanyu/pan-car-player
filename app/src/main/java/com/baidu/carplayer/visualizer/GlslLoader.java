@@ -1,4 +1,4 @@
-package com.baidu.carplayer.widget;
+package com.baidu.carplayer.visualizer;
 
 import android.content.Context;
 import android.opengl.GLES30;

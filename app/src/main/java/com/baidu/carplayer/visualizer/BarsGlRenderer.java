@@ -14,7 +14,7 @@ import java.util.Arrays;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
-import com.baidu.carplayer.widget.GlslLoader;
+import com.baidu.carplayer.visualizer.GlslLoader;
 
 /**
  * GLES 3.0 3D 频谱柱渲染器。

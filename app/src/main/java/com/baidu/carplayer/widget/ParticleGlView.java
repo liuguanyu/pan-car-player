@@ -23,6 +23,7 @@ public final class ParticleGlView extends GLSurfaceView {
         setEGLContextClientVersion(3);
         setEGLConfigChooser(8, 8, 8, 8, 0, 0);
         setPreserveEGLContextOnPause(true);
+        renderer.setContext(context);   // 先注入 Context（读 res/raw GLSL），再挂 renderer
         setRenderer(renderer);
         setRenderMode(RENDERMODE_WHEN_DIRTY);
         renderer.setIdleListener(() -> post(this::stopContinuous));
