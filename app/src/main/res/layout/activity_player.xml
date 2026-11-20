@@ -182,6 +182,12 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
 
+        <com.baidu.carplayer.widget.BarsGlView
+            android:id="@+id/bars_gl_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
         <com.baidu.carplayer.widget.ThunderGlView
             android:id="@+id/thunder_gl_view"
             android:layout_width="match_parent"
