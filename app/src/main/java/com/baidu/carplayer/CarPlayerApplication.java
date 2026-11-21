@@ -30,6 +30,12 @@ public class CarPlayerApplication extends MultiDexApplication {
     public void onCreate() {
         super.onCreate();
         Log.d(TAG, "Application onCreate started");
+
+        // 崩溃落盘：真机没有 adb 时，堆栈写到 files/crash/，可直接查看
+        try {
+            CrashReporter.install(this);
+        } catch (Throwable ignored) {
+        }
         
         // 初始化应用级别的组件
         try {

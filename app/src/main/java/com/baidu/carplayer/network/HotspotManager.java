@@ -107,7 +107,7 @@ public final class HotspotManager {
             if (wifi == null) return null;
             android.net.wifi.WifiInfo info = wifi.getConnectionInfo();
             return info == null ? null : cleanSsid(info.getSSID());
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
             // 没有定位权限时读 SSID 会抛 SecurityException；不影响其它功能
             Log.d(TAG, "currentSsid: " + e.getMessage());
             return null;
@@ -140,7 +140,7 @@ public final class HotspotManager {
             wifi.addNetworkSuggestions(all);
             Log.i(TAG, "已注册热点建议: " + ssid);
             return true;
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
             Log.w(TAG, "addNetworkSuggestions 失败: " + e);
             return false;
         }
@@ -156,7 +156,7 @@ public final class HotspotManager {
             all.add(new WifiNetworkSuggestion.Builder()
                     .setSsid(ssid).setWpa2Passphrase(pass).build());
             wifi.removeNetworkSuggestions(all);
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
             Log.w(TAG, "removeNetworkSuggestions 失败: " + e);
         }
     }
@@ -170,9 +170,41 @@ public final class HotspotManager {
             WifiManager wifi = (WifiManager) context.getApplicationContext()
                     .getSystemService(Context.WIFI_SERVICE);
             if (wifi != null) wifi.reconnect();
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
             Log.w(TAG, "reconnect 失败: " + e);
         }
+    }
+
+    /** 注册建议 + 重连完成后的回调（主线程）。 */
+    public interface SuggestCallback { void onResult(boolean registered); }
+
+    private static final java.util.concurrent.Executor EXEC =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "hotspot-wifi");
+                t.setPriority(Thread.MIN_PRIORITY);
+                return t;
+            });
+
+    /**
+     * 后台执行 suggest + reconnect，完成后回主线程回调。
+     * 车机 ROM 上 Wi-Fi 服务可能被深度定制，binder 调用可能抛非 RuntimeException
+     * （如类被 stub 的 LinkageError）或长时间阻塞，因此绝不能在主线程直接做。
+     */
+    public static void suggestAsync(final Context context, final String ssid, final String pass,
+                                    final android.os.Handler main, final SuggestCallback callback) {
+        EXEC.execute(() -> {
+            boolean ok = false;
+            try {
+                ok = suggest(context, ssid, pass);
+                tryReconnect(context);
+            } catch (Throwable t) {
+                Log.w(TAG, "后台 Wi-Fi 操作失败: " + t);
+            }
+            final boolean r = ok;
+            main.post(() -> {
+                if (callback != null) callback.onResult(r);
+            });
+        });
     }
 
     /** 打开系统 Wi-Fi 面板（Android 10+ 用 Panel，更早用设置页）。 */
@@ -186,7 +218,7 @@ public final class HotspotManager {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             context.startActivity(intent);
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
             // 极少数 ROM 没实现 Panel，退回设置页
             if (Build.VERSION.SDK_INT >= 29) {
                 context.startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS));

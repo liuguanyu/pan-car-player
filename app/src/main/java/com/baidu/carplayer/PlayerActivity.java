@@ -649,8 +649,8 @@ public class PlayerActivity extends AppCompatActivity {
             showConfigureDialog(null);
             return;
         }
-        com.baidu.carplayer.network.HotspotManager.suggest(this, ssid, pass);
-        com.baidu.carplayer.network.HotspotManager.tryReconnect(this);
+        com.baidu.carplayer.network.HotspotManager.suggestAsync(this, ssid, pass,
+                new android.os.Handler(getMainLooper()), ok -> { });
         Toast.makeText(this, "正在重连 “" + ssid + "”…", Toast.LENGTH_SHORT).show();
         new Handler(getMainLooper()).postDelayed(() -> {
             if (isFinishing() || isDestroyed()) return;
@@ -711,10 +711,18 @@ public class PlayerActivity extends AppCompatActivity {
                         return;
                     }
                     com.baidu.carplayer.network.HotspotManager.save(this, ssid, pass);
-                    boolean ok = com.baidu.carplayer.network.HotspotManager.suggest(this, ssid, pass);
-                    com.baidu.carplayer.network.HotspotManager.tryReconnect(this);
-                    Toast.makeText(this, ok ? "已保存，系统会在热点范围内自动连接" : "已保存，但注册失败，请点“重连热点”试一次", Toast.LENGTH_LONG).show();
-                    updateWifiButton();
+                    Toast.makeText(this, "已保存，正在交给系统…", Toast.LENGTH_SHORT).show();
+                    d.dismiss();
+                    // Wi-Fi 系统调用在后台线程做（车机 ROM 定制多，binder 可能慢或抛意外异常），
+                    // 结果回主线程再提示
+                    com.baidu.carplayer.network.HotspotManager.suggestAsync(
+                            this, ssid, pass, new android.os.Handler(getMainLooper()),
+                            ok -> {
+                                Toast.makeText(this, ok
+                                        ? "已保存，系统会在热点范围内自动连接"
+                                        : "已保存，但注册失败，请点“重连热点”试一次", Toast.LENGTH_LONG).show();
+                                updateWifiButton();
+                            });
                 })
                 .setNegativeButton("取消", null);
         AlertDialog cfgDialog = cfgBuilder.create();
