@@ -195,6 +195,12 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
 
+        <com.baidu.carplayer.widget.BreakoutGlView
+            android:id="@+id/breakout_gl_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
         <com.baidu.carplayer.widget.VisualizerView
             android:id="@+id/visualizer_view"
             android:layout_width="match_parent"

@@ -111,6 +111,7 @@ public class PlayerActivity extends AppCompatActivity {
     private com.baidu.carplayer.widget.WaveGlView waveGlView;
     private com.baidu.carplayer.widget.BarsGlView barsGlView;
     private com.baidu.carplayer.widget.ThunderGlView thunderGlView;
+    private com.baidu.carplayer.widget.BreakoutGlView breakoutGlView;
     private boolean glSupported;
     private final com.baidu.carplayer.visualizer.VisualizerCoordinator visualizerCoordinator =
             new com.baidu.carplayer.visualizer.VisualizerCoordinator(visualizerManager);
@@ -246,6 +247,8 @@ public class PlayerActivity extends AppCompatActivity {
         barsGlView.attach(visualizerManager);
         thunderGlView = findViewById(R.id.thunder_gl_view);
         thunderGlView.attach(visualizerManager);
+        breakoutGlView = findViewById(R.id.breakout_gl_view);
+        breakoutGlView.attach(visualizerManager);
         glSupported = com.baidu.carplayer.widget.ParticleGlView.isSupported(this);
         String preferred = getSharedPreferences("player_visualizer", MODE_PRIVATE)
                 .getString("mode", "default");
@@ -873,6 +876,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (waveGlView != null) waveGlView.setActive(false);
         if (barsGlView != null) barsGlView.setActive(false);
         if (thunderGlView != null) thunderGlView.setActive(false);
+        if (breakoutGlView != null) breakoutGlView.setActive(false);
         if (speedMonitor != null) { speedMonitor.stop(); speedMonitor = null; }
         if (serviceBound) {
             audioPlayerService.unsubscribePlaybackState(playbackStateSubscriber);
@@ -1111,12 +1115,14 @@ public class PlayerActivity extends AppCompatActivity {
         boolean useWaveGl = show && glSupported && "wave".equals(selectedMode);
         boolean useBarsGl = show && glSupported && "bars".equals(selectedMode);
         boolean useThunderGl = show && glSupported && "thunder".equals(selectedMode);
-        boolean useGl = useParticleGl || useWaveGl || useBarsGl || useThunderGl;
+        boolean useBreakoutGl = show && glSupported && "breakout".equals(selectedMode);
+        boolean useGl = useParticleGl || useWaveGl || useBarsGl || useThunderGl || useBreakoutGl;
         visualizerView.setVisibility(show && !useGl ? View.VISIBLE : View.GONE);
         particleGlView.setVisibility(useParticleGl ? View.VISIBLE : View.GONE);
         waveGlView.setVisibility(useWaveGl ? View.VISIBLE : View.GONE);
         barsGlView.setVisibility(useBarsGl ? View.VISIBLE : View.GONE);
         thunderGlView.setVisibility(useThunderGl ? View.VISIBLE : View.GONE);
+        breakoutGlView.setVisibility(useBreakoutGl ? View.VISIBLE : View.GONE);
         rotatingDiscView.setVisibility(show ? View.GONE : View.VISIBLE);
         rotatingTextView.setVisibility(show ? View.GONE : View.VISIBLE);
         particleBackgroundView.setVisibility(show ? View.GONE : View.VISIBLE);
@@ -1125,6 +1131,7 @@ public class PlayerActivity extends AppCompatActivity {
         waveGlView.setActive(useWaveGl && visualizerCoordinator.isRendering());
         barsGlView.setActive(useBarsGl && visualizerCoordinator.isRendering());
         thunderGlView.setActive(useThunderGl && visualizerCoordinator.isRendering());
+        breakoutGlView.setActive(useBreakoutGl && visualizerCoordinator.isRendering());
         particleBackgroundView.setPlaying(!show && playing);
     }
 
