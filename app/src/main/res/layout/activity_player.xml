@@ -22,7 +22,7 @@
         android:paddingVertical="10dp"
         android:background="@drawable/header_gradient">
 
-        <!-- 第一行：返回 / 标题 / 状态（Wi-Fi、车速） -->
+        <!-- 第一行：返回 / 标题 / 状态（车速、Wi-Fi） -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
@@ -54,19 +54,6 @@
                 android:gravity="center_vertical"
                 android:layout_marginStart="@dimen/spacing_normal" />
 
-            <!-- 连接状态：Wi-Fi / 热点（未连接时半透明）。属于状态指示，不是播放控制 -->
-            <ImageButton
-                android:id="@+id/wifi_button"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:src="@drawable/ic_wifi"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Wi-Fi 热点重连"
-                android:scaleType="fitCenter"
-                android:padding="3dp"
-                android:layout_marginEnd="12dp"
-                app:tint="@android:color/white" />
-
             <!-- 实时车速（GPS）：七段数码管数字 + 单位，静止或无定位时自动隐藏 -->
             <com.baidu.carplayer.widget.LcdTextView
                 android:id="@+id/speed_text"
@@ -82,9 +69,23 @@
                 android:includeFontPadding="false"
                 android:singleLine="true"
                 android:text="km/h"
-                android:textSize="12sp"
+                android:textSize="13sp"
                 android:textColor="@color/car_text_secondary"
                 android:visibility="gone" />
+
+            <!-- 连接状态：Wi-Fi / 热点（未连接时半透明）。属于状态指示，不是播放控制 -->
+            <ImageButton
+                android:id="@+id/wifi_button"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_wifi"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Wi-Fi 热点重连"
+                android:scaleType="fitCenter"
+                android:padding="3dp"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="12dp"
+                app:tint="@android:color/white" />
 
         </LinearLayout>
 

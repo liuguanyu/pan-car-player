@@ -1059,7 +1059,7 @@ public class PlayerActivity extends AppCompatActivity {
                 if (first) {
                     // 数字尺寸只设一次，保证和标题栏协调
                     float sp = getResources().getDisplayMetrics().scaledDensity;
-                    speedText.setSize(sp * 2.6f, sp * 8.5f, sp * 17f, sp * 4.2f);
+                    speedText.setSize(sp * 3.1f, sp * 10f, sp * 21f, sp * 5f);
                 }
                 speedText.setDigitColor(com.baidu.carplayer.vehicle.SpeedTheme.accent(kmh));
                 // 首帧直接显示，之后像里程表一样滚动到新车速
