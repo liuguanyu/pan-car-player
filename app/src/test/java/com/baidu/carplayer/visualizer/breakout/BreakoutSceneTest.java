@@ -39,7 +39,7 @@ public class BreakoutSceneTest {
         scene.setAspect(.6f);
         BreakoutScene.Ball b = scene.balls()[0];
         b.x = .2f; b.y = .3f; b.vx = .2f; b.vy = .4f;
-        float top = .6f - .065f - BreakoutScene.BALL_R;
+        float top = .6f - BreakoutScene.PADDLE_MARGIN - BreakoutScene.BALL_R;
         float t = (top - b.y) / b.vy;
         assertEquals(.2f + .2f * t, scene.predictLanding(b), 1e-4f);
 
@@ -125,7 +125,7 @@ public class BreakoutSceneTest {
         BreakoutScene.Ball b = scene.balls()[0];
         b.active = true;
         b.x = .82f;
-        b.y = scene.aspect() - .065f - BreakoutScene.BALL_R * .4f;
+        b.y = scene.aspect() - BreakoutScene.PADDLE_MARGIN - BreakoutScene.BALL_R * .4f;
         b.vx = 0f; b.vy = .3f;
         scene.paddle().x = .82f;
 
@@ -146,7 +146,7 @@ public class BreakoutSceneTest {
         BreakoutScene.Ball b = scene.balls()[0];
         b.active = true;
         b.x = .55f;
-        b.y = scene.aspect() - .065f - BreakoutScene.BALL_R * .4f;
+        b.y = scene.aspect() - BreakoutScene.PADDLE_MARGIN - BreakoutScene.BALL_R * .4f;
         b.vx = 0f; b.vy = .3f;
         scene.paddle().x = .55f;
         scene.update(1f / 60f, tunedAudio(.05f, .95f, .85f, .9f));
@@ -164,7 +164,7 @@ public class BreakoutSceneTest {
         BreakoutScene.Ball b = scene.balls()[0];
         b.active = true;
         b.x = .55f;
-        b.y = scene.aspect() - .065f - BreakoutScene.BALL_R * .4f;
+        b.y = scene.aspect() - BreakoutScene.PADDLE_MARGIN - BreakoutScene.BALL_R * .4f;
         b.vx = 0f; b.vy = .3f;
         scene.paddle().x = .55f;
         scene.update(1f / 60f, tunedAudio(.05f, .95f, .85f, .9f));
@@ -178,7 +178,7 @@ public class BreakoutSceneTest {
         // 残局：只剩最左一列砖，球在右侧底部即将漏掉。
         for (BreakoutScene.Brick brick : scene.bricks()) brick.alive = brick.col == 0;
         BreakoutScene.Ball b = scene.balls()[0];
-        b.x = .8f; b.y = scene.aspect() - BreakoutScene.BALL_R * .5f;
+        b.x = .8f; b.y = scene.aspect() - BreakoutScene.BALL_R * .05f;
         b.vx = 0f; b.vy = .3f;
         scene.paddle().x = .8f;
         scene.update(1f / 60f, new BreakoutScene.Audio());
@@ -212,7 +212,7 @@ public class BreakoutSceneTest {
         BreakoutScene.Ball b = scene.balls()[0];
         b.active = true;
         b.x = scene.paddle().x + scene.paddle().width * .5f * offset;
-        b.y = scene.aspect() - .065f - BreakoutScene.BALL_R * .4f;
+        b.y = scene.aspect() - BreakoutScene.PADDLE_MARGIN - BreakoutScene.BALL_R * .4f;
         b.vx = 0f; b.vy = .3f; b.speedScale = 1f; b.spin = 0f;
         return b;
     }
@@ -269,7 +269,7 @@ public class BreakoutSceneTest {
         b.active = true;
         scene.paddle().x = .8f;
         b.x = .8f;
-        b.y = scene.aspect() - .065f - BreakoutScene.BALL_R * .4f;
+        b.y = scene.aspect() - BreakoutScene.PADDLE_MARGIN - BreakoutScene.BALL_R * .4f;
         b.vx = 0f; b.vy = .3f;
 
         // 音频偏高频，排除音乐削球分支，只验证残局瞄准。

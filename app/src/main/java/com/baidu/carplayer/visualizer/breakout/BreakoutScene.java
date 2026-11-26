@@ -18,6 +18,13 @@ public final class BreakoutScene {
     public static final int MAX_SHOCKS = 16;
     public static final int FORMATIONS = 6;
     public static final float BALL_R = 0.012f;
+    /** 挡板中心距底边的距离（y 向下为正）。越小挡板越靠下，砖块可用高度越大。 */
+    public static final float PADDLE_MARGIN = 0.035f;
+    /** 砖块区在场景中的纵向范围（相对 aspect 的比例），顶部起点与终点。 */
+    public static final float BRICK_TOP = 0.045f;
+    public static final float BRICK_SPAN = 0.475f;
+    /** 砖墙纵向中心（相对 aspect），瞄准逻辑用它当目标高度。 */
+    public static final float BRICK_CENTER = BRICK_TOP + BRICK_SPAN * 0.5f;
     public static final float STEP = 1f / 120f;
     public static final float BASE_SPEED = 0.42f;
 
@@ -265,7 +272,10 @@ public final class BreakoutScene {
             if (b.y < BALL_R) { b.y = BALL_R; b.vy = Math.abs(b.vy); }
             hitBricks(b);
             hitPaddle(b, top);
-            if (b.y + BALL_R >= aspect) rescue(b);
+            // 球顶已低于挡板面且在下落：没被接住，判扑救。贴底是最后兜底
+            // （留白小于接触带时，旧条件在球穿过接触带前就失效）。
+            if (b.y + BALL_R >= aspect
+                    || (b.vy > 0f && b.y - BALL_R > top)) rescue(b);
             for (int i = TRAIL - 1; i > 0; i--) {
                 b.trailX[i] = b.trailX[i - 1];
                 b.trailY[i] = b.trailY[i - 1];
@@ -447,7 +457,7 @@ public final class BreakoutScene {
             // 削球压平降速；搓球带弧线；救球允许更陡并加速。
             float targetX = brickTargetX(b.x, b.y);
             float dx = unfoldToward(b.x, targetX) - b.x;
-            float dy = aspect * .10f - b.y; // 砖墙大致在上方 10% 处
+            float dy = aspect * BRICK_CENTER - b.y; // 瞄准砖墙中心，随布局常量一起变化
             float limit = shot == SHOT_SAVE ? 1.10f
                     : (shot == SHOT_SPIN ? 1.05f : .95f);
             float angle = clamp((float) Math.atan2(dx, -dy), -limit, limit);
@@ -579,7 +589,7 @@ public final class BreakoutScene {
         return true;
     }
 
-    private float paddleTop() { return aspect - .065f; }
+    private float paddleTop() { return aspect - PADDLE_MARGIN; }
 
     private void rebuild(int next) {
         formation = next;
@@ -597,7 +607,7 @@ public final class BreakoutScene {
                         : ITEM_NONE;
                 b.alive = mask(formation, col, row);
                 b.w = (.9f / COLS) * .88f;
-                b.h = (aspect * .40f / ROWS) * .72f;
+                b.h = (aspect * BRICK_SPAN / ROWS) * .72f;
                 layout(formation, col, row, layout);
                 // 环阵把每行排成同心圆，半径越小的圈周长越短；
                 // 砖宽必须按各自周长算，否则内圈 10 块砖会互相叠压。
@@ -653,7 +663,7 @@ public final class BreakoutScene {
         float u = (col + .5f) / COLS;
         float v = (row + .5f) / ROWS;
         float x = .05f + u * .9f;
-        float y = aspect * (.06f + v * .40f);
+        float y = aspect * (BRICK_TOP + v * BRICK_SPAN);
         switch (f) {
             case F_DIAMOND: {
                 float taper = .55f + .45f * (1f - Math.abs(v - .5f) * 2f);
@@ -680,7 +690,7 @@ public final class BreakoutScene {
                 break;
         }
         out[0] = clamp(x, .02f, .98f);
-        out[1] = clamp(y, aspect * .04f, aspect * .52f);
+        out[1] = clamp(y, aspect * (BRICK_TOP - .01f), aspect * (BRICK_TOP + BRICK_SPAN + .02f));
     }
 
     private static float clamp(float v, float lo, float hi) {

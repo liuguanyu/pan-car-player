@@ -263,7 +263,7 @@ public final class BreakoutRenderer implements GLSurfaceView.Renderer {
             float k = p.shotTimer / .65f;
             pr += .25f * k; pg += .18f * k; pb += .18f * k;
         }
-        n = put(n, p.x, scene.aspect() - .054f, p.width * .5f, ph, pr, pg, pb, 2f);
+        n = put(n, p.x, scene.aspect() - BreakoutScene.PADDLE_MARGIN + .011f, p.width * .5f, ph, pr, pg, pb, 2f);
         for (BreakoutScene.Shock s : scene.shocks()) {
             if (!s.active) continue;
             float size = (.012f + s.age * .11f) * s.scale;
