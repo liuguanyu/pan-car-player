@@ -17,7 +17,7 @@ public final class BreakoutScene {
     public static final int TRAIL = 6;
     public static final int MAX_SHOCKS = 16;
     public static final int FORMATIONS = 6;
-    public static final float BALL_R = 0.012f;
+    public static final float BALL_R = .006f;
     /** 挡板中心距底边的距离（y 向下为正）。越小挡板越靠下，砖块可用高度越大。 */
     public static final float PADDLE_MARGIN = 0.035f;
     /** 砖块区在场景中的纵向范围（相对 aspect 的比例），顶部起点与终点。 */
@@ -91,7 +91,13 @@ public final class BreakoutScene {
     private float lastBass, lastTreble, lastCentroid, lastConfidence;
 
     private final Ball[] balls = new Ball[MAX_BALLS];
-    private final Brick[] bricks = new Brick[BRICK_COUNT];
+    private final Brick[] bricks = new Brick[GlyphPattern.MAX_BRICKS];
+    private final int[] glyphCols = new int[GlyphPattern.MAX_BRICKS];
+    private final int[] glyphRows = new int[GlyphPattern.MAX_BRICKS];
+    private GlyphPattern.Spec glyph;
+    private int glyphCount;
+    private boolean ghost;
+    private int rebounds;
     private final Shock[] shocks = new Shock[MAX_SHOCKS];
     private final Paddle paddle = new Paddle();
     private int shockCursor;
@@ -99,7 +105,7 @@ public final class BreakoutScene {
 
     public BreakoutScene() {
         for (int i = 0; i < MAX_BALLS; i++) balls[i] = new Ball();
-        for (int i = 0; i < BRICK_COUNT; i++) bricks[i] = new Brick();
+        for (int i = 0; i < bricks.length; i++) bricks[i] = new Brick();
         for (int i = 0; i < MAX_SHOCKS; i++) shocks[i] = new Shock();
         reset();
     }
@@ -134,7 +140,21 @@ public final class BreakoutScene {
         reset();
     }
 
+    public void setGlyph(GlyphPattern.Spec pattern) {
+        readGlyph(pattern);
+        reset();
+    }
+
+    private void readGlyph(GlyphPattern.Spec pattern) {
+        glyph = pattern;
+        glyphCount = glyph == null ? 0 : glyph.gridCells(glyphCols, glyphRows);
+    }
+
+    public boolean ghostBricks() { return glyph != null && ghost; }
+
     public void reset() {
+        ghost = true;
+        rebounds = 0;
         accumulator = time = colorT = rescueFlash = shockwaveFlash = 0f;
         emaBass = emaMid = emaVolume = emaTreble = quietTime = 0f;
         lastBeat = Double.NaN;
@@ -157,7 +177,8 @@ public final class BreakoutScene {
         for (int i = 0; i < TRAIL; i++) { b.trailX[i] = b.x; b.trailY[i] = b.y; }
         for (Shock s : shocks) s.active = false;
         for (Brick brick : bricks) { brick.x = 0f; brick.y = 0f; }
-        rebuild(0);
+        if (glyph == null) rebuild(0);
+        else placeGlyph();
     }
 
     /** 每帧调用：处理音频事件，然后以固定步长推进物理。 */
@@ -171,6 +192,12 @@ public final class BreakoutScene {
         emaTreble += (a.treble - emaTreble) * k;
         colorT += (a.centroid - colorT) * Math.min(1f, dt * 5f);
 
+        if (glyph != null) {
+            // 全频平均值会被低能量 FFT bin 拉低，低频或中频有信号时也能点亮。
+            float activity = Math.max(emaVolume, Math.max(emaBass, emaMid));
+            if (activity < .008f) ghost = true;
+            else if (activity > .018f) ghost = false;
+        }
         handleAudio(a, dt);
         accumulator += dt;
         int guard = 0;
@@ -191,7 +218,6 @@ public final class BreakoutScene {
             if (!Double.isNaN(lastBeat) && now > (int) Math.floor(lastBeat)) {
                 beatCount++;
                 if (a.beatConfidence > .5f) {
-                    if (beatCount % 8 == 0) wideUntil = time + 4f * period;
                     if (emaBass > .12f && a.bass - emaBass > .12f && a.flux > .6f) {
                         speedBoostUntil = time + 4f * period;
                     }
@@ -199,7 +225,7 @@ public final class BreakoutScene {
                     if (emaBass > .10f && a.bass - emaBass > .08f && a.flux > .45f) {
                         pierceUntil = time + 3f * period;
                     }
-                    if (beatCount % 16 == 0) rebuild((formation + 1) % FORMATIONS);
+                    if (glyph == null && beatCount % 16 == 0) rebuild((formation + 1) % FORMATIONS);
                 }
             }
             lastBeat = a.beatPosition;
@@ -295,7 +321,15 @@ public final class BreakoutScene {
             balls[0].vy = -(float) Math.sqrt(BASE_SPEED * BASE_SPEED - balls[0].vx * balls[0].vx);
             balls[0].speedScale = 1f;
             balls[0].spin = 0f;
-            rebuild((formation + 1) % FORMATIONS);
+            for (int i = 0; i < TRAIL; i++) {
+                balls[0].trailX[i] = balls[0].x;
+                balls[0].trailY[i] = balls[0].y;
+            }
+            if (glyph == null) rebuild((formation + 1) % FORMATIONS);
+            else {
+                readGlyph(GlyphPattern.nextRound(glyph));
+                placeGlyph();
+            }
         }
     }
 
@@ -369,7 +403,7 @@ public final class BreakoutScene {
         float half = paddle.width * .5f;
         if (Math.abs(b.x - paddle.x) > half + BALL_R) return;
         float offset = clamp((b.x - paddle.x) / half, -1f, 1f);
-        applyShot(b, chooseShot(b, offset), offset);
+        applyShot(b, chooseShot(b), offset);
         b.y = top - BALL_R;
     }
 
@@ -377,7 +411,7 @@ public final class BreakoutScene {
      * 回击类型由音乐决定：低频主导偏削球，高频或频谱质心高偏搓球；
      * 挡板正处于扑救冲刺状态时强制为救球。
      */
-    private int chooseShot(Ball b, float offset) {
+    private int chooseShot(Ball b) {
         if (paddle.dash > .45f) return SHOT_SAVE;
         float bias = lastBass - lastTreble;
         if (bias > .06f && lastConfidence > .25f) return SHOT_CHOP;
@@ -396,42 +430,69 @@ public final class BreakoutScene {
         return n;
     }
 
-    /** 横向价值场，brickTargetX 复用，避免每次调用分配数组。 */
-    private final float[] targetScore = new float[COLS];
+    /** 横向密度仅提供清场加分，瞄准点始终取剩余砖的实际坐标。 */
+    private final int[] columnDensity = new int[COLS];
 
-    /**
-     * 球的目标点：扫描横向价值密度，选"威力更大、剩余砖更多"的一侧。
-     * 道具砖权重高于普通砖（触发技能、连锁清场）；相邻列计入密度加成；
-     * 离球远的略降权，但不会压过价值差——配合 unfoldToward 仍可打到远端密集区。
-     */
     private float brickTargetX(float fromX, float fromY) {
-        for (int i = 0; i < COLS; i++) targetScore[i] = 0f;
+        Brick target = chooseBrick(fromX, fromY, 1.10f);
+        return target == null ? .5f : target.x;
+    }
+
+    Brick chooseBrick(float fromX, float fromY, float angleLimit) {
+        java.util.Arrays.fill(columnDensity, 0);
+        int remaining = 0, activeBalls = 0;
+        for (Ball ball : balls) if (ball.active) activeBalls++;
         for (Brick brick : bricks) {
-            if (!brick.alive) continue;
-            int bin = (int) (brick.x * COLS);
-            if (bin < 0) bin = 0;
-            else if (bin >= COLS) bin = COLS - 1;
-            // 道具砖威力更大：打中能触发技能与连锁清场，权重 3 倍。
-            float value = brick.type == ITEM_NONE ? 1f : 3f;
-            // 靠上方的砖更早被球命中，略加权。
-            if (brick.y < fromY) value *= 1.1f;
-            targetScore[bin] += value;
+            if (!brick.alive || brick.y >= fromY) continue;
+            columnDensity[columnBin(brick.x)]++;
+            remaining++;
         }
-        // 穿透/连锁状态下更吃密集区，一次能带走更多砖。
-        float neighborWeight = piercing() || chaining() ? .75f : .45f;
-        int best = -1;
-        float bestScore = -1f;
-        for (int i = 0; i < COLS; i++) {
-            float density = targetScore[i]
-                    + (i > 0 ? targetScore[i - 1] : 0f) * neighborWeight
-                    + (i < COLS - 1 ? targetScore[i + 1] : 0f) * neighborWeight;
-            if (density <= 0f) continue;
-            float centerX = (i + .5f) / COLS;
-            float reach = 1f / (1f + Math.abs(centerX - fromX) * .45f);
-            float score = density * reach;
-            if (score > bestScore) { bestScore = score; best = i; }
+        boolean clearing = remaining <= 5;
+        boolean combo = piercing() || chaining();
+        float maxSlope = (float) Math.tan(angleLimit);
+        Brick best = null;
+        boolean bestReachable = false;
+        float bestScore = Float.NEGATIVE_INFINITY;
+        for (Brick brick : bricks) {
+            if (!brick.alive || brick.y >= fromY) continue;
+            int bin = columnBin(brick.x);
+            int nearby = columnDensity[bin] - 1
+                    + (bin > 0 ? columnDensity[bin - 1] : 0)
+                    + (bin + 1 < COLS ? columnDensity[bin + 1] : 0);
+            float dx = Math.abs(brick.x - fromX), dy = fromY - brick.y;
+            float miss = Math.max(0f, dx - dy * maxSlope - brick.w * .5f - BALL_R);
+            boolean reachable = miss == 0f;
+            float density = clearing ? 0f : nearby * (combo ? .48f : .20f);
+            float bonus = clearing ? 0f : itemValue(brick.type, activeBalls);
+            float score = 1f + density + bonus - dx * .75f - dy * .40f - miss * 6f;
+            if ((reachable && !bestReachable) || (reachable == bestReachable && score > bestScore)) {
+                bestScore = score;
+                bestReachable = reachable;
+                best = brick;
+            }
         }
-        return best >= 0 ? (best + .5f) / COLS : .5f;
+        return best;
+    }
+
+    private static int columnBin(float x) {
+        return Math.max(0, Math.min(COLS - 1, (int) (x * COLS)));
+    }
+
+    private float itemValue(int type, int activeBalls) {
+        switch (type) {
+            case ITEM_MULTI:
+                return Math.min(2, MAX_BALLS - activeBalls) * .95f;
+            case ITEM_WIDE:
+                return !wideActive() ? 1.35f : wideUntil - time < 2f ? .55f : .15f;
+            case ITEM_FAST:
+                return fastActive() ? .15f : paddle.dash > .30f ? .10f : .85f;
+            case ITEM_SLOW:
+                return slowActive() ? .05f : activeBalls > 1 || paddle.dash > .30f ? .70f : -.20f;
+            case ITEM_NARROW:
+                return -.70f;
+            default:
+                return 0f;
+        }
     }
 
     /** x 域 [0,1] 侧墙反射周期为 2，取离fromX最近的镜像作为瞄准点。 */
@@ -446,46 +507,33 @@ public final class BreakoutScene {
         if (shot == SHOT_SAVE) {
             paddle.dash = 1f;
             rescueFlash = Math.max(rescueFlash, .80f);
-            // 救球奖励：物理挡板同步加宽，和白热宽板的视觉反馈一致。
-            wideUntil = Math.max(wideUntil, time + .65f);
         }
         float sp = (float) Math.sqrt(b.vx * b.vx + b.vy * b.vy);
         if (sp < 1e-5f) sp = BASE_SPEED;
-        float vx, vy;
-        if (shot == SHOT_CHOP || shot == SHOT_SPIN || shot == SHOT_SAVE) {
-            // 三种主动技巧都瞄准剩余砖块，不让球被送进空区。
-            // 削球压平降速；搓球带弧线；救球允许更陡并加速。
-            float targetX = brickTargetX(b.x, b.y);
-            float dx = unfoldToward(b.x, targetX) - b.x;
-            float dy = aspect * BRICK_CENTER - b.y; // 瞄准砖墙中心，随布局常量一起变化
-            float limit = shot == SHOT_SAVE ? 1.10f
-                    : (shot == SHOT_SPIN ? 1.05f : .95f);
-            float angle = clamp((float) Math.atan2(dx, -dy), -limit, limit);
-            if (Math.abs(angle) < .18f) angle = (angle >= 0f ? 1f : -1f) * .18f;
-            vx = sp * (float) Math.sin(angle);
-            vy = -(float) Math.sqrt(Math.max(sp * sp * .04f, sp * sp - vx * vx));
-        } else {
-            float angle = offset * 1.05f;
-            vx = sp * (float) Math.sin(angle);
-            if (Math.abs(vx) < sp * .18f) vx = (vx >= 0f ? 1f : -1f) * sp * .18f;
-            vy = -(float) Math.sqrt(Math.max(sp * sp * .04f, sp * sp - vx * vx));
-        }
-        b.vx = vx;
-        b.vy = vy;
         if (shot == SHOT_CHOP) b.speedScale = Math.max(.66f, b.speedScale * .76f);
         else if (shot == SHOT_SAVE) b.speedScale = Math.min(1.38f, b.speedScale * 1.14f);
-        // 侧旋方向要跟瞄准一致：球在挡板右侧接球（offset>0）时若仍按 offset
-        // 给正 spin，弧线会把球继续往右带，抵消朝砖区的初速度。
-        float aimDx = unfoldToward(b.x, brickTargetX(b.x, b.y)) - b.x;
+
+        float limit = shot == SHOT_SAVE ? 1.10f : shot == SHOT_CHOP ? .95f : 1.05f;
+        Brick target = chooseBrick(b.x, paddleTop() - BALL_R, limit);
+        float aimDx = target == null ? 0f : target.x - b.x;
+        // 侧旋朝目标方向，计算发射角时扣掉一部分侧旋造成的横向位移。
+        b.spin = 0f;
         if (shot == SHOT_SPIN) {
-            float spin = Math.signum(aimDx) * Math.min(.14f,
-                    Math.max(.04f, Math.abs(aimDx) * .18f));
-            b.spin = spin;
+            b.spin = Math.copySign(Math.min(.14f, Math.abs(aimDx) * .45f), aimDx);
         } else if (shot == SHOT_SAVE) {
             b.spin = Math.signum(aimDx) * Math.abs(offset) * .08f;
-        } else {
-            b.spin = 0f;
         }
+        float angle = offset * limit;
+        if (target != null) {
+            float rise = paddleTop() - BALL_R - target.y;
+            float flightTime = (float) Math.hypot(aimDx, rise) / sp;
+            float drift = b.spin * (1f - (float) Math.exp(-2.2f * flightTime)) / 2.2f;
+            angle = clamp((float) Math.atan2(aimDx - drift, rise), -limit, limit);
+        } else if (Math.abs(angle) < .18f) {
+            angle = Math.copySign(.18f, angle);
+        }
+        b.vx = sp * (float) Math.sin(angle);
+        b.vy = -sp * (float) Math.cos(angle);
     }
 
     private void rescue(Ball b) {
@@ -504,7 +552,7 @@ public final class BreakoutScene {
     private void shockwave(float cx, float cy, float radius) {
         shockwaveFlash = 1f;
         for (Brick brick : bricks) {
-            if (!brick.alive) continue;
+            if (!brick.alive || ghostBricks()) continue;
             if (Math.abs(brick.x - cx) < radius) {
                 brick.alive = false;
                 spawnShock(brick.x, brick.y, 1.3f);
@@ -521,6 +569,7 @@ public final class BreakoutScene {
     }
 
     private void hitBricks(Ball b) {
+        if (ghostBricks()) return;
         boolean pierce = time < pierceUntil;
         int broken = 0;
         for (Brick brick : bricks) {
@@ -540,6 +589,18 @@ public final class BreakoutScene {
         if (!pierce) {
             if (Math.abs(dx) > Math.abs(dy)) b.vx = -b.vx;
             else b.vy = -b.vy;
+            if (glyph != null) {
+                long variation = glyph.seed + 31L * brick.col + 17L * brick.row + rebounds++;
+                float angle = (float) Math.toRadians((2 + (variation >>> 1) % 3)
+                        * ((variation & 1L) == 0 ? 1 : -1));
+                float sin = (float) Math.sin(angle), cos = (float) Math.cos(angle);
+                float vx = b.vx * cos - b.vy * sin;
+                float vy = b.vx * sin + b.vy * cos;
+                if (Math.abs(dx) > Math.abs(dy) ? vx * b.vx > 0f : vy * b.vy > 0f) {
+                    b.vx = vx;
+                    b.vy = vy;
+                }
+            }
         }
         applyItem(brick.type);
         spawnShock(brick.x, brick.y, 1f);
@@ -565,7 +626,7 @@ public final class BreakoutScene {
                 fastUntil = time + 6f;
                 break;
             case ITEM_WIDE:
-                wideUntil = Math.max(wideUntil, time + 8f);
+                wideUntil = time + 8f;
                 break;
             case ITEM_NARROW:
                 narrowUntil = time + 5f;
@@ -591,7 +652,39 @@ public final class BreakoutScene {
 
     private float paddleTop() { return aspect - PADDLE_MARGIN; }
 
+    private void placeGlyph() {
+        float top = aspect * BRICK_TOP;
+        float bottom = Math.min(aspect * .68f, aspect * .74f - BALL_R);
+        float rowPitch = (bottom - top) / glyph.gridRows;
+        float colPitch = Math.min(.90f / glyph.gridCols, rowPitch * 1.55f);
+        float gap = 1.5f * BALL_R;
+        for (int i = 0; i < bricks.length; i++) {
+            Brick brick = bricks[i];
+            brick.alive = i < glyphCount;
+            if (!brick.alive) continue;
+            int col = glyphCols[i], row = glyphRows[i];
+            brick.col = col;
+            brick.row = row;
+            brick.band = row * 3 / glyph.gridRows;
+            brick.type = brickType((int) Math.floorMod(glyph.seed + col * 7L + row * 13L, 23L));
+            brick.x = brick.targetX = .5f + (col + .5f - glyph.gridCols * .5f) * colPitch;
+            brick.y = brick.targetY = top + (row + .5f) * rowPitch;
+            brick.w = colPitch - gap;
+            brick.h = rowPitch - gap;
+        }
+    }
+
+    private static int brickType(int hash) {
+        if (hash == 0) return ITEM_MULTI;
+        if (hash <= 2) return ITEM_FAST;
+        if (hash <= 4) return ITEM_SLOW;
+        if (hash == 5) return ITEM_WIDE;
+        if (hash == 6) return ITEM_NARROW;
+        return ITEM_NONE;
+    }
+
     private void rebuild(int next) {
+        for (int i = BRICK_COUNT; i < bricks.length; i++) bricks[i].alive = false;
         formation = next;
         for (int row = 0; row < ROWS; row++) {
             for (int col = 0; col < COLS; col++) {
@@ -599,12 +692,7 @@ public final class BreakoutScene {
                 b.col = col; b.row = row;
                 b.band = row < ROWS / 3 ? 0 : (row < 2 * ROWS / 3 ? 1 : 2);
                 int h = (col * 7 + row * 13 + formation * 5) % 23;
-                b.type = h == 0 ? ITEM_MULTI
-                        : (h == 1 || h == 2) ? ITEM_FAST
-                        : (h == 3 || h == 4) ? ITEM_SLOW
-                        : h == 5 ? ITEM_WIDE
-                        : h == 6 ? ITEM_NARROW
-                        : ITEM_NONE;
+                b.type = brickType(h);
                 b.alive = mask(formation, col, row);
                 b.w = (.9f / COLS) * .88f;
                 b.h = (aspect * BRICK_SPAN / ROWS) * .72f;

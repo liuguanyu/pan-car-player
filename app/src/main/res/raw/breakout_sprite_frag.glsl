@@ -10,6 +10,55 @@ float roundBox(vec2 p, vec2 b, float r){
     return length(max(q,0.))+min(max(q.x,q.y),0.)-r;
 }
 
+// 胶囊线段：箭头/斜线都用它拼，避免为标志引入额外顶点。
+float sdSeg(vec2 p, vec2 a, vec2 b, float r){
+    vec2 pa=p-a, ba=b-a;
+    float h=clamp(dot(pa,ba)/max(dot(ba,ba),1e-6),0.,1.);
+    return length(pa-ba*h)-r;
+}
+
+// 技能砖标志：统一白色，靠形状区分类型（10 多球 11 加速 12 减速 13 加宽 14 变窄）
+float itemGlyph(vec2 p, int t){
+    if(t==10){                                  // 多球：三个点
+        return min(min(length(p-vec2(-.58,0.)),length(p)),
+                   length(p-vec2(.58,0.)))-.30;
+    }
+    if(t==11){                                  // 加速：双上箭头
+        float d=1e3;
+        for(int i=0;i<2;i++){
+            float y=-.55+float(i)*.72;
+            d=min(d,sdSeg(p,vec2(-.62,y),vec2(0.,y+.62),.13));
+            d=min(d,sdSeg(p,vec2(0.,y+.62),vec2(.62,y),.13));
+        }
+        return d;
+    }
+    if(t==12){                                  // 减速：双下箭头
+        float d=1e3;
+        for(int i=0;i<2;i++){
+            float y=.55-float(i)*.72;
+            d=min(d,sdSeg(p,vec2(-.62,y),vec2(0.,y-.62),.13));
+            d=min(d,sdSeg(p,vec2(0.,y-.62),vec2(.62,y),.13));
+        }
+        return d;
+    }
+    if(t==13){                                  // 加宽：横向展开
+        float d=sdSeg(p,vec2(-.72,0.),vec2(.72,0.),.11);
+        d=min(d,sdSeg(p,vec2(.72,0.),vec2(.34,.40),.11));
+        d=min(d,sdSeg(p,vec2(.72,0.),vec2(.34,-.40),.11));
+        d=min(d,sdSeg(p,vec2(-.72,0.),vec2(-.34,.40),.11));
+        d=min(d,sdSeg(p,vec2(-.72,0.),vec2(-.34,-.40),.11));
+        return d;
+    }
+    float d=1e3;                                // 变窄：两个向内收拢的箭头
+    d=min(d,sdSeg(p,vec2(-.80,0.),vec2(-.26,0.),.11));
+    d=min(d,sdSeg(p,vec2(-.26,0.),vec2(-.56,.36),.11));
+    d=min(d,sdSeg(p,vec2(-.26,0.),vec2(-.56,-.36),.11));
+    d=min(d,sdSeg(p,vec2(.80,0.),vec2(.26,0.),.11));
+    d=min(d,sdSeg(p,vec2(.26,0.),vec2(.56,.36),.11));
+    d=min(d,sdSeg(p,vec2(.26,0.),vec2(.56,-.36),.11));
+    return d;
+}
+
 void main(){
     vec3 col=vMeta.rgb;
     float kind=vMeta.a;
@@ -18,9 +67,21 @@ void main(){
     float glowGain=1.;      // 光晕强度倍率
     float fade=1.;
 
-    if(kind>5.5){                     // 道具砖光核
-        d=length(vP)-.82;
-        fade=.80; glowGain=1.1; coreGain=1.;
+    if(kind>9.5){                     // 技能砖标志：白色，靠形状区分类型
+        float gd=itemGlyph(vP,int(kind+.5));
+        float gaa=max(fwidth(gd),1e-4);
+        float gcore=1.-smoothstep(-gaa,gaa,gd);
+        float gglow=exp(-max(gd,0.)*7.5)*.16;
+        o=vec4(col,clamp(gcore*.95+gglow,0.,1.));
+        return;
+    }
+    if(kind>6.5){                     // 弱音砖在小尺寸下也保留清晰的轮廓
+        float edge=roundBox(vP,vec2(.96,.90),.22);
+        float aa=max(fwidth(edge)*.5,.001);
+        float face=1.-smoothstep(-aa,aa,edge);
+        float stroke=smoothstep(-aa,aa,edge+max(.28,aa*2.));
+        o=vec4(mix(col,vec3(.85,.91,1.),.24),face*mix(.14,.72,stroke));
+        return;
     }else if(kind>4.5){               // 侧旋光环
         d=abs(length(vP)-.72)-.055;
         fade=.45; glowGain=1.3; coreGain=1.;

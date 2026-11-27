@@ -12,6 +12,7 @@ public final class BreakoutGlView extends GLSurfaceView {
     private final BreakoutRenderer renderer = new BreakoutRenderer();
     private boolean active;
     private boolean continuous;
+    private long seekRevision;
 
     public BreakoutGlView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -28,12 +29,24 @@ public final class BreakoutGlView extends GLSurfaceView {
         renderer.setFftSource(new BreakoutRenderer.FftSource() {
             @Override public byte[] latest() { return m.latestFft(); }
             @Override public int epoch() { return m.epoch(); }
+            @Override public float sampleRateHz() { return m.fftSampleRateHz(); }
         });
         renderer.setTempoSource(new BreakoutRenderer.TempoSource() {
             @Override public double beatPosition(long nowMs) { return m.beatPosition(nowMs); }
             @Override public float confidence(long nowMs) { return m.beatConfidence(nowMs); }
             @Override public float periodMs() { return m.periodMs(); }
         });
+    }
+
+    public long seekRevision() { return seekRevision; }
+
+    public void setPlayback(long songId, String title, long revision) {
+        seekRevision = revision;
+        renderer.setPlayback(songId, title, revision);
+        if (getVisibility() == VISIBLE) {
+            onResume();
+            requestRender();
+        }
     }
 
     public void setActive(boolean v) {

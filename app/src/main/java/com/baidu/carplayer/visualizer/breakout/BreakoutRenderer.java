@@ -29,7 +29,11 @@ public final class BreakoutRenderer implements GLSurfaceView.Renderer {
     private static final int VERTS = 6;
     private static final int STRIDE = 8;
 
-    public interface FftSource { byte[] latest(); int epoch(); }
+    public interface FftSource {
+        byte[] latest();
+        int epoch();
+        float sampleRateHz();
+    }
     public interface TempoSource {
         double beatPosition(long nowMs);
         float confidence(long nowMs);
@@ -57,6 +61,23 @@ public final class BreakoutRenderer implements GLSurfaceView.Renderer {
     private final FloatBuffer instances = ByteBuffer
             .allocateDirect(CAP * STRIDE * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
 
+    private static final class Track {
+        final long seed, revision;
+        final int titleKey;
+        Track(long songId, String title, long revision) {
+            long titleHash = GlyphPattern.stableHash(title);
+            seed = songId > 0 ? GlyphPattern.stableHash(Long.toString(songId)) : titleHash;
+            titleKey = (int) Math.floorMod(titleHash, GlyphFont.SIZE);
+            this.revision = revision;
+        }
+    }
+
+    private volatile Track track;
+    private Track appliedTrack;
+    private final KeyEstimator keyEstimator = new KeyEstimator();
+    private byte[] previousCapture;
+    private float sampleSeconds;
+    private boolean pending;
     private long lastNs;
     private float time, pulse;
     private double lastBeat = Double.NaN;
@@ -66,6 +87,9 @@ public final class BreakoutRenderer implements GLSurfaceView.Renderer {
     public void setTempoSource(TempoSource s) { tempo = s; }
     public void setIdleListener(IdleListener l) { idle = l; }
     public void setWantActive(boolean v) { active = v; }
+    public void setPlayback(long songId, String title, long revision) {
+        track = title == null ? null : new Track(songId, title, revision);
+    }
 
     @Override public void onSurfaceCreated(GL10 unused, EGLConfig config) {
         try {
@@ -117,10 +141,14 @@ public final class BreakoutRenderer implements GLSurfaceView.Renderer {
         time += dt;
         pulse *= (float) Math.pow(.86, dt * 60f);
 
+        syncTrack();
+        if (pending && !active) finishPattern(0, -1);
         if (active) {
             updateScene(dt);
-            scene.easeBricks(dt);
-            scene.update(dt, audio);
+            if (!pending) {
+                if (appliedTrack == null) scene.easeBricks(dt);
+                scene.update(dt, audio);
+            }
         }
 
         GLES30.glClearColor(.018f, .025f, .042f, 1f);
@@ -132,29 +160,75 @@ public final class BreakoutRenderer implements GLSurfaceView.Renderer {
         if (!active && idle != null) idle.onIdle();
     }
 
+    private void syncTrack() {
+        Track next = track;
+        if (next == appliedTrack) return;
+        boolean changed = next == null || appliedTrack == null || next.seed != appliedTrack.seed;
+        boolean seek = !changed && next.revision != appliedTrack.revision;
+        appliedTrack = next;
+        if (changed) {
+            sampleSeconds = 0f;
+            previousCapture = source == null ? EMPTY : source.latest();
+            keyEstimator.reset();
+            pending = next != null;
+            if (next != null) {
+                int saved = features().getInt(Long.toHexString(next.seed), -1);
+                if (saved >= 0) applyPattern(saved / 64, saved % 64 - 1);
+                else if (!active) finishPattern(0, -1);
+            }
+            if (pending || next == null) scene.setGlyph(null);
+            resetAudio();
+        } else if (seek) {
+            if (pending) finishPattern(0, -1);
+            else scene.reset();
+            resetAudio();
+        }
+    }
+
+    private void finishPattern(int bpm, int key) {
+        features().edit().putInt(Long.toHexString(appliedTrack.seed), bpm * 64 + key + 1).apply();
+        applyPattern(bpm, key);
+    }
+
+    private void applyPattern(int bpm, int key) {
+        scene.setGlyph(GlyphPattern.generate(appliedTrack.seed, bpm, key, appliedTrack.titleKey));
+        pending = false;
+    }
+
+    private android.content.SharedPreferences features() {
+        return appContext.getSharedPreferences("breakout_features_v1", Context.MODE_PRIVATE);
+    }
+
+    private void resetAudio() {
+        analyzer.reset();
+        lastBeat = Double.NaN;
+        pulse = 0f;
+        java.util.Arrays.fill(prevSpectrum, 0f);
+    }
+
+    private final float[] magnitudes = new float[128];
+
     private void updateScene(float dt) {
         FftSource fs = source;
         byte[] fft = fs == null ? EMPTY : fs.latest();
-        if (fs != null && epoch != fs.epoch()) {
-            epoch = fs.epoch();
-            scene.reset();
-            lastBeat = Double.NaN;
-            java.util.Arrays.fill(prevSpectrum, 0f);
+        int captureEpoch = fs == null ? 0 : fs.epoch();
+        if (epoch != captureEpoch) {
+            epoch = captureEpoch;
+            resetAudio();
         }
-        AudioAnalyzer.Analysis a = analyzer.analyze(fft);
-        audio.bass = a.bass;
-        audio.mid = a.mid;
-        audio.treble = a.treble;
-        audio.volume = a.volume;
-        audio.peak = a.peak;
-        float[] spec = a.spectrum;
+        int count = AudioAnalyzer.decodeMagnitudes(fft, magnitudes);
+        audio.bass = AudioAnalyzer.average(magnitudes, 0, Math.min(6, count));
+        audio.mid = AudioAnalyzer.average(magnitudes, 6, Math.min(32, count));
+        audio.treble = AudioAnalyzer.average(magnitudes, 32, count);
+        audio.volume = AudioAnalyzer.average(magnitudes, 0, count);
+        audio.peak = analyzer.detectPeak(audio.volume);
         float sum = 0f, weighted = 0f, flux = 0f;
-        for (int i = 0; i < spec.length; i++) {
-            sum += spec[i];
-            weighted += i * spec[i];
+        for (int i = 0; i < count; i++) {
+            sum += magnitudes[i];
+            weighted += i * magnitudes[i];
             if (i < prevSpectrum.length) {
-                flux += Math.max(0f, spec[i] - prevSpectrum[i]);
-                prevSpectrum[i] = spec[i];
+                flux += Math.max(0f, magnitudes[i] - prevSpectrum[i]);
+                prevSpectrum[i] = magnitudes[i];
             }
         }
         audio.centroid = sum > 1e-5f ? Math.min(1f, weighted / sum / 63f) : 0f;
@@ -162,7 +236,7 @@ public final class BreakoutRenderer implements GLSurfaceView.Renderer {
 
         TempoSource t = tempo;
         if (t != null) {
-            long ms = System.currentTimeMillis();
+            long ms = android.os.SystemClock.uptimeMillis();
             double beat = t.beatPosition(ms);
             if (!Double.isNaN(lastBeat) && Math.floor(beat) > Math.floor(lastBeat)) pulse = 1f;
             lastBeat = beat;
@@ -172,6 +246,19 @@ public final class BreakoutRenderer implements GLSurfaceView.Renderer {
         } else {
             audio.beatPosition = Double.NaN;
             audio.beatConfidence = 0f;
+        }
+        if (pending) {
+            sampleSeconds += dt;
+            if (fs != null && fft != previousCapture && count > 2) {
+                previousCapture = fft;
+                keyEstimator.addFrame(magnitudes, count, fs.sampleRateHz() / fft.length);
+            }
+            if (sampleSeconds >= 4f) {
+                int bpm = audio.beatConfidence >= .5f && audio.periodMs >= 250f
+                        ? Math.round(60000f / audio.periodMs) : 0;
+                int key = keyEstimator.letterKey();
+                finishPattern(bpm, key);
+            }
         }
     }
 
@@ -189,7 +276,9 @@ public final class BreakoutRenderer implements GLSurfaceView.Renderer {
     }
 
     private int packInstances() {
+        if (pending) return 0;
         int n = 0;
+        boolean ghost = scene.ghostBricks();
         for (BreakoutScene.Brick b : scene.bricks()) {
             if (!b.alive) continue;
             float band = b.band == 0 ? scene.bass() : (b.band == 1 ? scene.mid() : scene.treble());
@@ -206,12 +295,14 @@ public final class BreakoutRenderer implements GLSurfaceView.Renderer {
             else if (b.band == 0) { r = .92f; g = .58f; bl = .14f; }
             else if (b.band == 1) { r = .14f; g = .78f; bl = .48f; }
             else { r = .34f; g = .44f; bl = .95f; }
-            n = put(n, b.x, b.y, b.w * .5f * scale, b.h * .5f * scale, r, g, bl, 0f);
-            // 道具砖中心加一颗呼吸的白色光核，和普通砖一眼区分。
+            n = put(n, b.x, b.y, b.w * .5f * scale, b.h * .5f * scale, r, g, bl, ghost ? 7f : 0f);
+            // 技能砖标志：白色、按类型给不同形状；弱音幽灵态只压暗亮度，形状仍保留。
             if (b.type != BreakoutScene.ITEM_NONE) {
                 float pulse = .75f + .25f * (float) Math.sin(scene.time() * 6f + b.col);
-                n = put(n, b.x, b.y, b.w * .16f * pulse, b.h * .28f * pulse,
-                        1f, 1f, 1f, 6f);
+                float size = Math.min(b.w, b.h) * .46f * pulse;
+                float gain = ghost ? ItemGlyph.GHOST_GAIN : 1f;
+                n = put(n, b.x, b.y, size, size, gain, gain, gain,
+                        ItemGlyph.kindFor(b.type));
             }
         }
         float t = scene.colorT();
@@ -250,7 +341,7 @@ public final class BreakoutRenderer implements GLSurfaceView.Renderer {
         }
         BreakoutScene.Paddle p = scene.paddle();
         // 回击类型用配色和厚度区分：推挡青、削球琥珀、搓球紫、救球白热。
-        // 宽度直接用物理 p.width（救球时场景已临时加宽），避免看到的和碰撞的不一致。
+        // 渲染与碰撞共享挡板宽度，命中道具砖后同步变化。
         float pr = .22f, pg = .84f, pb = .70f, ph = .011f;
         if (p.shotType == BreakoutScene.SHOT_CHOP) {
             pr = .95f; pg = .60f; pb = .18f; ph = .008f;

@@ -18,15 +18,34 @@ public final class AudioAnalyzer {
     public static float[] fftToMagnitudes(byte[] fft, int maxBins) {
         if (fft == null || fft.length < 2 || maxBins <= 0) return new float[0];
         float[] values = new float[Math.min(fft.length / 2, maxBins)];
-        values[0] = Math.abs((int) fft[0]) / 128f;
-        for (int i = 1; i < values.length; i++) {
-            int real = fft[2 * i], imaginary = fft[2 * i + 1];
-            values[i] = Math.min(1f, (float) Math.sqrt(real * real + imaginary * imaginary) / 181f);
-        }
+        decodeMagnitudes(fft, values);
         return values;
     }
 
-    private static float average(float[] values, int start, int end) {
+    /** 解码到可复用缓冲，返回当前帧有效幅度数。 */
+    public static int decodeMagnitudes(byte[] fft, float[] values) {
+        int count = fft == null ? 0 : Math.min(fft.length / 2, values.length);
+        if (count == 0) return 0;
+        values[0] = Math.abs((int) fft[0]) / 128f;
+        for (int i = 1; i < count; i++) {
+            int real = fft[2 * i], imaginary = fft[2 * i + 1];
+            values[i] = Math.min(1f, (float) Math.sqrt(real * real + imaginary * imaginary) / 181f);
+        }
+        return count;
+    }
+
+    public boolean detectPeak(float volume) {
+        boolean peak = false;
+        if (cooldown > 0) cooldown--;
+        else if (volume > .65f && volume - previousVolume > .15f) {
+            peak = true;
+            cooldown = 8;
+        }
+        previousVolume = volume;
+        return peak;
+    }
+
+    public static float average(float[] values, int start, int end) {
         start = Math.min(start, values.length); end = Math.min(end, values.length);
         if (end <= start) return 0;
         float sum = 0;
@@ -37,12 +56,7 @@ public final class AudioAnalyzer {
     public Analysis analyze(byte[] fft) {
         float[] values = fftToMagnitudes(fft, 128);
         float volume = average(values, 0, values.length);
-        boolean peak = false;
-        if (cooldown > 0) cooldown--;
-        else if (volume > .65f && volume - previousVolume > .15f) {
-            peak = true; cooldown = 8;
-        }
-        previousVolume = volume;
+        boolean peak = detectPeak(volume);
         return new Analysis(average(values, 0, 6), average(values, 6, 32),
                 average(values, 32, values.length), volume, peak, values);
     }

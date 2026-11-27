@@ -5,6 +5,7 @@ import org.junit.Test;
 import java.util.Random;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class BreakoutSceneTest {
@@ -154,6 +155,27 @@ public class BreakoutSceneTest {
         assertTrue("should aim at item bricks: " + b.vx, b.vx < 0f);
     }
 
+    @Test public void prioritizesMultiballUntilBallPoolIsFullAndFavorsReachInEndgame() {
+        BreakoutScene scene = new BreakoutScene();
+        BreakoutScene.Brick[] bricks = scene.bricks();
+        for (BreakoutScene.Brick brick : bricks) brick.alive = false;
+        for (int i = 0; i < 6; i++) {
+            BreakoutScene.Brick brick = bricks[i];
+            brick.alive = true;
+            brick.x = i < 3 ? .4f : .6f;
+            brick.y = .3f - (i % 3) * .04f;
+            brick.type = BreakoutScene.ITEM_NONE;
+        }
+        bricks[0].type = BreakoutScene.ITEM_MULTI;
+        bricks[3].type = BreakoutScene.ITEM_WIDE;
+        assertEquals(bricks[0], scene.chooseBrick(.5f, .55f, 1.05f));
+        for (BreakoutScene.Ball ball : scene.balls()) ball.active = true;
+        assertEquals(bricks[3], scene.chooseBrick(.5f, .55f, 1.05f));
+        bricks[5].alive = false;
+        bricks[0].x = .33f;
+        assertEquals(bricks[1], scene.chooseBrick(.4f, .55f, 1.05f));
+    }
+
     @Test public void aimPrefersDenserSide() {
         BreakoutScene scene = tuned(.05f, .95f, .85f, .9f);
         // 左侧 4 列普通砖，右侧 2 列普通砖。
@@ -172,7 +194,7 @@ public class BreakoutSceneTest {
         assertTrue("should aim at denser side: " + b.vx, b.vx < 0f);
     }
 
-    @Test public void saveShotAimsTowardBricksAndWidensPaddle() {
+    @Test public void saveShotAimsTowardBricksWithoutWideningPaddle() {
         BreakoutScene scene = new BreakoutScene();
         scene.setAspect(.6f);
         // 残局：只剩最左一列砖，球在右侧底部即将漏掉。
@@ -184,7 +206,8 @@ public class BreakoutSceneTest {
         scene.update(1f / 60f, new BreakoutScene.Audio());
         assertEquals(BreakoutScene.SHOT_SAVE, scene.paddle().shotType);
         assertTrue("save should aim left toward bricks: " + b.vx, b.vx < 0f);
-        assertTrue("save should widen paddle physically", scene.wideActive());
+        assertFalse(scene.wideActive());
+        assertEquals(.16f, scene.paddle().width, 1e-5f);
     }
 
     private static BreakoutScene tuned(float bass, float treble,
@@ -260,11 +283,58 @@ public class BreakoutSceneTest {
         assertTrue(scene.shockwaveFlash() > .5f);
     }
 
+    @Test public void lowLevelMidrangeLightsGlyphBricks() {
+        BreakoutScene scene = new BreakoutScene();
+        scene.setGlyph(GlyphPattern.generate(2L, 92, GlyphFont.indexOf('A'), 7));
+        BreakoutScene.Audio audio = new BreakoutScene.Audio();
+        assertTrue(scene.ghostBricks());
+
+        audio.volume = .009f;
+        audio.mid = .028f;
+        for (int i = 0; i < 60; i++) scene.update(1f / 60f, audio);
+        assertTrue(!scene.ghostBricks());
+
+        audio.volume = audio.mid = 0f;
+        for (int i = 0; i < 90; i++) scene.update(1f / 60f, audio);
+        assertTrue(scene.ghostBricks());
+    }
+
+    @Test public void clearingGlyphChangesTheNextBoardInARepeatableOrder() {
+        GlyphPattern.Spec opening = GlyphPattern.generate(2L, 92, GlyphFont.indexOf('A'), 7);
+        BreakoutScene first = new BreakoutScene();
+        BreakoutScene replay = new BreakoutScene();
+        first.setGlyph(opening);
+        replay.setGlyph(opening);
+        BreakoutScene.Audio audio = new BreakoutScene.Audio();
+        for (int round = 0; round < GlyphFont.SIZE; round++) {
+            int[] previous = occupiedCells(first);
+            for (BreakoutScene.Brick brick : first.bricks()) brick.alive = false;
+            for (BreakoutScene.Brick brick : replay.bricks()) brick.alive = false;
+            first.update(BreakoutScene.STEP, audio);
+            replay.update(BreakoutScene.STEP, audio);
+            int[] next = occupiedCells(first);
+            assertTrue(!java.util.Arrays.equals(previous, next));
+            assertTrue(next.length > 0 && next.length <= GlyphPattern.MAX_BRICKS);
+            org.junit.Assert.assertArrayEquals(next, occupiedCells(replay));
+            first.reset();
+            org.junit.Assert.assertArrayEquals(next, occupiedCells(first));
+        }
+    }
+
+    private static int[] occupiedCells(BreakoutScene scene) {
+        int[] cells = new int[aliveBricks(scene)];
+        int i = 0;
+        for (BreakoutScene.Brick brick : scene.bricks()) {
+            if (brick.alive) cells[i++] = brick.row * 24 + brick.col;
+        }
+        return cells;
+    }
+
     @Test public void chopAimsBallTowardRemainingBricks() {
         BreakoutScene scene = new BreakoutScene();
         scene.setAspect(.6f);
         // 残局：只剩最左侧一列砖，球在右侧。
-        for (BreakoutScene.Brick brick : scene.bricks()) brick.alive = brick.col == 0;
+        for (BreakoutScene.Brick brick : scene.bricks()) brick.alive = brick.alive && brick.col == 0;
         BreakoutScene.Ball b = scene.balls()[0];
         b.active = true;
         scene.paddle().x = .8f;
@@ -325,6 +395,36 @@ public class BreakoutSceneTest {
                         b.y <= scene.aspect() - BreakoutScene.BALL_R + 1e-4f);
             }
         }
+    }
+
+    @Test public void strongBeatsDoNotWidenPaddle() {
+        BreakoutScene scene = new BreakoutScene();
+        scene.balls()[0].active = false;
+        BreakoutScene.Audio audio = new BreakoutScene.Audio();
+        audio.beatConfidence = .95f;
+        for (int beat = 0; beat <= 8; beat++) {
+            audio.beatPosition = beat;
+            scene.update(BreakoutScene.STEP, audio);
+        }
+        assertEquals(8L, scene.beatCount());
+        assertFalse(scene.wideActive());
+        assertEquals(.16f, scene.paddle().width, 1e-5f);
+    }
+
+    @Test public void wideBrickWidensPaddleForEightSeconds() {
+        BreakoutScene scene = hitItem(BreakoutScene.ITEM_WIDE);
+        for (BreakoutScene.Ball ball : scene.balls()) ball.active = false;
+        BreakoutScene.Audio audio = new BreakoutScene.Audio();
+        for (int i = 0; i < 79; i++) scene.update(.05f, audio);
+        assertTrue(scene.wideActive());
+        assertEquals(.16f * 1.55f, scene.paddle().width, 1e-4f);
+        for (int i = 0; i < 80; i++) scene.update(.05f, audio);
+        assertTrue(scene.wideActive());
+        scene.update(.05f, audio);
+        scene.update(.05f, audio);
+        assertFalse(scene.wideActive());
+        for (int i = 0; i < 25; i++) scene.update(.05f, audio);
+        assertEquals(.16f, scene.paddle().width, 1e-4f);
     }
 
     @Test public void itemBricksApplyTheirEffects() {
