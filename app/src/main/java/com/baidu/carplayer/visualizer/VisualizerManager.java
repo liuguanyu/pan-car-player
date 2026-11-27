@@ -6,7 +6,7 @@ import android.util.Log;
 
 /** Owns capture only while the player page is visible. All effect state is updated on the UI thread. */
 public final class VisualizerManager implements VisualizerCoordinator.Capture {
-    public static final String[] MODES = {"default", "bars", "sheep", "particles", "wave", "thunder", "breakout"};
+    public static final String[] MODES = {"default", "bars", "sheep", "particles", "wave", "thunder", "breakout", "fireworks"};
     private static final byte[] EMPTY = new byte[0];
     /** 节拍跟踪：在采集线程喂入 FFT，小羊在 UI 线程读取拍位置，让舞步与音乐同步。 */
     private final BeatTracker beats = new BeatTracker();
@@ -25,6 +25,7 @@ public final class VisualizerManager implements VisualizerCoordinator.Capture {
     private Visualizer capture;
     private int sessionId;
     private volatile byte[] lastFft = EMPTY;
+    private volatile float fftSampleRateHz;
     private final CaptureGate gate = new CaptureGate();
     /** 场景重置代次：切模式 / 会话释放时递增，GL 渲染器据此重置场景。 */
     private volatile int epoch;
@@ -46,6 +47,7 @@ public final class VisualizerManager implements VisualizerCoordinator.Capture {
             next.setDataCaptureListener(new Visualizer.OnDataCaptureListener() {
                 @Override public void onFftDataCapture(Visualizer v, byte[] fft, int rate) {
                     if (!gate.accepts(token)) return;
+                    fftSampleRateHz = rate * .001f;
                     lastFft = fft.clone();
                     beats.onFrame(fft, android.os.SystemClock.uptimeMillis());
                 }
@@ -66,6 +68,7 @@ public final class VisualizerManager implements VisualizerCoordinator.Capture {
     /** GL 渲染器每帧读取：播放中为最新 FFT，否则为空数组。 */
     public byte[] latestFft() { return playing ? lastFft : EMPTY; }
     public int epoch() { return epoch; }
+    public float fftSampleRateHz() { return fftSampleRateHz; }
     public float periodMs() { return beats.periodMs(); }
     public double beatPosition(long nowMs) { return beats.beatPosition(nowMs); }
     public float beatConfidence(long nowMs) { return beats.confidence(nowMs); }
