@@ -201,6 +201,12 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
 
+        <com.baidu.carplayer.widget.FireworksGlView
+            android:id="@+id/fireworks_gl_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
         <com.baidu.carplayer.widget.VisualizerView
             android:id="@+id/visualizer_view"
             android:layout_width="match_parent"
@@ -332,17 +338,32 @@
 
             </LinearLayout>
 
-            <!-- 中间播放按钮 -->
-            <ImageButton
-                android:id="@+id/play_pause_button"
+            <!-- 中间播放按钮；加载指示叠在同一块 80dp 区域内，不新增显示区 -->
+            <FrameLayout
                 android:layout_width="80dp"
-                android:layout_height="80dp"
-                android:src="@drawable/ic_play"
-                android:background="@drawable/bg_circle_button"
-                android:contentDescription="播放/暂停"
-                app:tint="@android:color/white"
-                android:scaleType="fitCenter"
-                android:padding="16dp" />
+                android:layout_height="80dp">
+
+                <ImageButton
+                    android:id="@+id/play_pause_button"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:src="@drawable/ic_play"
+                    android:background="@drawable/bg_circle_button"
+                    android:contentDescription="播放/暂停"
+                    app:tint="@android:color/white"
+                    android:scaleType="fitCenter"
+                    android:padding="16dp" />
+
+                <ProgressBar
+                    android:id="@+id/play_loading"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_gravity="center"
+                    android:indeterminate="true"
+                    android:indeterminateTint="@android:color/white"
+                    android:visibility="gone" />
+
+            </FrameLayout>
 
             <!-- 右侧控制区 -->
             <LinearLayout

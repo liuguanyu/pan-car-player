@@ -94,6 +94,8 @@ public class PlayerActivity extends AppCompatActivity {
     private SeekBar volumeBar;
     private ImageButton backButton;
     private ImageButton playPauseButton;
+    /** 叠在播放键上的加载指示，不额外占布局空间。 */
+    private android.widget.ProgressBar playLoading;
     private ImageButton previousButton;
     private ImageButton nextButton;
     private ImageButton playModeButton;
@@ -112,6 +114,7 @@ public class PlayerActivity extends AppCompatActivity {
     private com.baidu.carplayer.widget.BarsGlView barsGlView;
     private com.baidu.carplayer.widget.ThunderGlView thunderGlView;
     private com.baidu.carplayer.widget.BreakoutGlView breakoutGlView;
+    private com.baidu.carplayer.widget.FireworksGlView fireworksGlView;
     private boolean glSupported;
     private final com.baidu.carplayer.visualizer.VisualizerCoordinator visualizerCoordinator =
             new com.baidu.carplayer.visualizer.VisualizerCoordinator(visualizerManager);
@@ -135,6 +138,7 @@ public class PlayerActivity extends AppCompatActivity {
     private final PlaybackCoordinator.StateSubscriber playbackStateSubscriber =
             state -> this.handler.post(() -> renderPlaybackState(state));
     private PlayerViewState lastViewState;
+    private final MediaKeyDispatcher mediaKeys = new MediaKeyDispatcher();
     private final SeekGesture seekGesture = new SeekGesture();
     private boolean playbackStarted = false;
     private boolean pageStarted = false;
@@ -227,6 +231,7 @@ public class PlayerActivity extends AppCompatActivity {
         volumeBar = findViewById(R.id.volume_bar);
         backButton = findViewById(R.id.back_button);
         playPauseButton = findViewById(R.id.play_pause_button);
+        playLoading = findViewById(R.id.play_loading);
         previousButton = findViewById(R.id.previous_button);
         nextButton = findViewById(R.id.next_button);
         playModeButton = findViewById(R.id.play_mode_button);
@@ -249,6 +254,8 @@ public class PlayerActivity extends AppCompatActivity {
         thunderGlView.attach(visualizerManager);
         breakoutGlView = findViewById(R.id.breakout_gl_view);
         breakoutGlView.attach(visualizerManager);
+        fireworksGlView = findViewById(R.id.fireworks_gl_view);
+        fireworksGlView.setAudioSource(visualizerManager);
         glSupported = com.baidu.carplayer.widget.ParticleGlView.isSupported(this);
         String preferred = getSharedPreferences("player_visualizer", MODE_PRIVATE)
                 .getString("mode", "default");
@@ -443,6 +450,11 @@ public class PlayerActivity extends AppCompatActivity {
         PlayerViewState view = PlayerViewState.from(state);
         PlayerViewState previous = lastViewState;
         lastViewState = view;
+        if (previous == null || previous.song != view.song || view.songChangedFrom(previous)
+                || state.getSeekRevision() != breakoutGlView.seekRevision()) {
+            breakoutGlView.setPlayback(view.songId, view.song == null ? null : view.song.getTitleWithoutExtension(),
+                    state.getSeekRevision());
+        }
 
         if (view.song != null && view.songChangedFrom(previous)) {
             renderSongInfo(view.song);
@@ -453,6 +465,9 @@ public class PlayerActivity extends AppCompatActivity {
         }
         if (view.playingChangedFrom(previous)) {
             renderPlayPause(view.playing);
+        }
+        if (previous == null || previous.buffering != view.buffering) {
+            renderLoading(view.buffering);
         }
         if (previous == null || previous.playMode != view.playMode) {
             renderPlayMode(view.playMode);
@@ -527,10 +542,14 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void togglePlayPause() {
-        if (serviceBound) {
-            // 出错后 Service 的 PLAY 会重新获取下载地址，页面无需区分。
-            audioPlayerService.dispatch(PlaybackCommand.Type.TOGGLE);
+        if (!serviceBound) return;
+        PlayerViewState state = lastViewState;
+        if (state != null && (state.buffering || state.error)) {
+            // 加载中/出错时点播放按钮当作"立即重试"，否则用户只能干等或切歌。
+            audioPlayerService.dispatch(PlaybackCommand.Type.RETRY);
+            return;
         }
+        audioPlayerService.dispatch(PlaybackCommand.Type.TOGGLE);
     }
 
     private void playPrevious() {
@@ -811,6 +830,14 @@ public class PlayerActivity extends AppCompatActivity {
         playlistVisible = false;
     }
 
+    /** 缓冲/重试期间在播放键中央叠一个转圈，提示正在加载。 */
+    private void renderLoading(boolean loading) {
+        if (playLoading != null) {
+            playLoading.setVisibility(loading ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /** 图标反映"是否真的在出声"：加载/卡住时显示播放键，点一下就是重试。 */
     private void renderPlayPause(boolean playing) {
         if (playing) {
             playPauseButton.setImageResource(R.drawable.ic_pause);
@@ -877,6 +904,7 @@ public class PlayerActivity extends AppCompatActivity {
         if (barsGlView != null) barsGlView.setActive(false);
         if (thunderGlView != null) thunderGlView.setActive(false);
         if (breakoutGlView != null) breakoutGlView.setActive(false);
+        if (fireworksGlView != null) fireworksGlView.setActive(false);
         if (speedMonitor != null) { speedMonitor.stop(); speedMonitor = null; }
         if (serviceBound) {
             audioPlayerService.unsubscribePlaybackState(playbackStateSubscriber);
@@ -896,7 +924,7 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
         AudioPlayerService service = serviceBound ? audioPlayerService : null;
-        if (MediaKeyDispatcher.dispatch(event, service, null)) {
+        if (mediaKeys.dispatch(event, service, null)) {
             return true;
         }
         return super.dispatchKeyEvent(event);
@@ -1116,13 +1144,16 @@ public class PlayerActivity extends AppCompatActivity {
         boolean useBarsGl = show && glSupported && "bars".equals(selectedMode);
         boolean useThunderGl = show && glSupported && "thunder".equals(selectedMode);
         boolean useBreakoutGl = show && glSupported && "breakout".equals(selectedMode);
-        boolean useGl = useParticleGl || useWaveGl || useBarsGl || useThunderGl || useBreakoutGl;
+        boolean useFireworksGl = show && glSupported && "fireworks".equals(selectedMode);
+        boolean useGl = useParticleGl || useWaveGl || useBarsGl || useThunderGl
+                || useBreakoutGl || useFireworksGl;
         visualizerView.setVisibility(show && !useGl ? View.VISIBLE : View.GONE);
         particleGlView.setVisibility(useParticleGl ? View.VISIBLE : View.GONE);
         waveGlView.setVisibility(useWaveGl ? View.VISIBLE : View.GONE);
         barsGlView.setVisibility(useBarsGl ? View.VISIBLE : View.GONE);
         thunderGlView.setVisibility(useThunderGl ? View.VISIBLE : View.GONE);
         breakoutGlView.setVisibility(useBreakoutGl ? View.VISIBLE : View.GONE);
+        fireworksGlView.setVisibility(useFireworksGl ? View.VISIBLE : View.GONE);
         rotatingDiscView.setVisibility(show ? View.GONE : View.VISIBLE);
         rotatingTextView.setVisibility(show ? View.GONE : View.VISIBLE);
         particleBackgroundView.setVisibility(show ? View.GONE : View.VISIBLE);
@@ -1132,6 +1163,7 @@ public class PlayerActivity extends AppCompatActivity {
         barsGlView.setActive(useBarsGl && visualizerCoordinator.isRendering());
         thunderGlView.setActive(useThunderGl && visualizerCoordinator.isRendering());
         breakoutGlView.setActive(useBreakoutGl && visualizerCoordinator.isRendering());
+        fireworksGlView.setActive(useFireworksGl && visualizerCoordinator.isRendering());
         particleBackgroundView.setPlaying(!show && playing);
     }
 
@@ -1168,6 +1200,7 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        mediaKeys.cancel();
         if (speedMonitor != null) speedMonitor.stop();
         // 当Activity进入后台时保存播放进度
         if (serviceBound && audioPlayerService != null) {

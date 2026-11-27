@@ -64,6 +64,7 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
     };
     private boolean lastKnownPlaying = false;
     private boolean serviceBound = false;
+    private final MediaKeyDispatcher mediaKeys = new MediaKeyDispatcher();
     
     private CloudFileRepository cloudFiles;
     private PlaylistTransferController transfer;
@@ -111,6 +112,7 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
 
     @Override
     protected void onStop() {
+        mediaKeys.cancel();
         loadGate.cancel();
         if (serviceBound) {
             if (audioPlayerService != null) {
@@ -129,7 +131,7 @@ public class MainActivity extends AppCompatActivity implements PlaylistAdapter.O
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
         AudioPlayerService service = serviceBound ? audioPlayerService : null;
-        if (MediaKeyDispatcher.dispatch(event, service, null)) {
+        if (mediaKeys.dispatch(event, service, null)) {
             return true;
         }
         return super.dispatchKeyEvent(event);

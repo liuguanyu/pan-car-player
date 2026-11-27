@@ -77,6 +77,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
     };
     private boolean lastKnownPlaying = false;
     private boolean serviceBound = false;
+    private final MediaKeyDispatcher mediaKeys = new MediaKeyDispatcher();
     private boolean viewsInitialized = false;
     // 只允许一次在途加载，避免 onStart/onResume 重复请求。
     private final LoadGate loadGate = new LoadGate();
@@ -159,6 +160,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
     
     @Override
     protected void onStop() {
+        mediaKeys.cancel();
         loadGate.cancel();
         if (serviceBound) {
             if (audioPlayerService != null) {
@@ -177,7 +179,7 @@ public class SongListActivity extends AppCompatActivity implements SongAdapter.O
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
         AudioPlayerService service = serviceBound ? audioPlayerService : null;
-        if (MediaKeyDispatcher.dispatch(event, service, null)) {
+        if (mediaKeys.dispatch(event, service, null)) {
             return true;
         }
         return super.dispatchKeyEvent(event);

@@ -50,6 +50,8 @@ import java.util.List;
 public class AudioPlayerService extends Service {
     
     private static final String TAG = "AudioPlayerService";
+    /** 缓冲超过该时长判定网络卡死，转为一次自动重试。 */
+    private static final long STALL_TIMEOUT_MS = 12000L;
     private static final int NOTIFICATION_ID = 1;
     
     private ExoPlayer exoPlayer;
@@ -78,6 +80,7 @@ public class AudioPlayerService extends Service {
     private PlaybackNotifier notifier;
 
     // 加载请求代次与 seek/autoplay 意图；网络回调只能提交当前请求的结果。
+    private long seekRevision;
     private final PlaybackRequestTracker requestTracker = new PlaybackRequestTracker();
     private final PlaybackCoordinator playbackCoordinator = new PlaybackCoordinator(
             new PlaybackState(null, -1, -1L, PlaybackState.Status.IDLE, false, 0L, 0L, 0, 0, 0L));
@@ -94,6 +97,11 @@ public class AudioPlayerService extends Service {
     private com.baidu.carplayer.playback.NextUpPreloader nextUpPreloader;
     // 最近一次加载/解码失败；之后的 PLAY 需要重新获取下载地址，而不是恢复旧媒体项。
     private boolean loadFailed = false;
+    /** 已自动重试次数与本轮待执行的重试时刻（elapsedRealtime）；0 表示没有排队的重试。 */
+    private int retryAttempt = 0;
+    private long retryAtMs = 0L;
+    /** 进入缓冲的时刻，用于卡死看门狗；0 表示当前不在缓冲。 */
+    private long bufferingSinceMs = 0L;
     
     // 音频焦点相关状态
     private boolean wasPlayingBeforeFocusLoss = false;
@@ -254,8 +262,15 @@ public class AudioPlayerService extends Service {
                 if (playbackState == Player.STATE_BUFFERING) {
                     // 缓冲中：停掉预取，避免与当前曲目（尤其是大体积无损）抢网络
                     suspendPrefetchForLoading();
+                    bufferingSinceMs = android.os.SystemClock.elapsedRealtime();
+                    startStallWatchdog();
+                } else {
+                    bufferingSinceMs = 0L;
+                    commandHandler.removeCallbacks(stallWatchdog);
                 }
                 if (playbackState == Player.STATE_READY) {
+                    // 真正就绪即视为本轮网络恢复，重置重试计数。
+                    retryAttempt = 0;
                     Log.d(TAG, "加载耗时: 切歌→就绪 "
                             + (android.os.SystemClock.elapsedRealtime() - loadStartMs) + "ms");
                     PlayerEngine.logReady(exoPlayer);
@@ -309,6 +324,10 @@ public class AudioPlayerService extends Service {
                 if (tryRecoverFromHttpAuthError(error)) {
                     return;
                 }
+                if (com.baidu.carplayer.playback.NetworkRetry.isTransient(error)) {
+                    scheduleRetry();
+                    return;
+                }
                 notifyPlayerError(error);
             }
             
@@ -316,6 +335,7 @@ public class AudioPlayerService extends Service {
             public void onPositionDiscontinuity(@NonNull Player.PositionInfo oldPosition,
                                                @NonNull Player.PositionInfo newPosition,
                                                int reason) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) seekRevision++;
                 publishPlaybackState();
             }
         };
@@ -545,6 +565,8 @@ public class AudioPlayerService extends Service {
         }
         loadStartMs = android.os.SystemClock.elapsedRealtime();
         urlRetriedForCurrentLoad = false;
+        cancelScheduledRetry();
+        bufferingSinceMs = 0L;
         com.baidu.carplayer.model.Song song = queue.current();
         final long requestGeneration = requestTracker.begin(song.getId(), seekToPosition, true).getRequestId();
         // 切歌后立即停掉旧歌：否则在新地址返回前（弱网/断网时可能很久）
@@ -749,6 +771,24 @@ public class AudioPlayerService extends Service {
     
     
     /**
+     * 相对当前进度跳转，用于方向盘长按快进/快退；越界时夹在 [0, duration] 内。
+     */
+    public void seekBy(long deltaMs) {
+        if (destroyed) return;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            final long delta = deltaMs;
+            commandHandler.post(() -> seekBy(delta));
+            return;
+        }
+        if (exoPlayer == null) return;
+        long target = Math.max(0L, exoPlayer.getCurrentPosition() + deltaMs);
+        long duration = exoPlayer.getDuration();
+        if (duration > 0L) target = Math.min(target, duration);
+        exoPlayer.seekTo(target);
+        publishPlaybackState();
+    }
+
+    /**
      * 跳转到指定位置
      */
     private void seekTo(long positionMs) {
@@ -801,6 +841,12 @@ public class AudioPlayerService extends Service {
                 break;
             case TOGGLE:
                 if (isPlaying()) pause(); else play();
+                break;
+            case RETRY:
+                // 用户主动重试：清零计数，立即重新取链接。
+                retryAttempt = 0;
+                cancelScheduledRetry();
+                retryCurrent();
                 break;
             case NEXT:
                 playNext();
@@ -927,6 +973,11 @@ public class AudioPlayerService extends Service {
             duration = Math.max(0L, exoPlayer.getDuration());
             audioSessionId = exoPlayer.getAudioSessionId();
         }
+        if (retryAtMs > 0L && status == PlaybackState.Status.IDLE) {
+            // 重试等待中：对页面表现为"加载中"，播放意图仍为真。
+            status = PlaybackState.Status.BUFFERING;
+            playWhenReady = true;
+        }
         PlaybackCommand command = requestTracker.current();
         if (command != null && status == PlaybackState.Status.IDLE) {
             // 正在获取下载地址：显示缓冲，并反映该请求的 autoplay 意图。
@@ -944,8 +995,75 @@ public class AudioPlayerService extends Service {
         }
         return new PlaybackState(queueSnapshot, queue.getIndex(), song != null ? song.getId() : -1L,
                 status, playWhenReady, position, duration, queue.getMode().ordinal(), audioSessionId,
-                requestTracker.getGeneration()).withPlayerDetails(userVolume, currentAudioFormat());
+                requestTracker.getGeneration()).withPlayerDetails(userVolume, currentAudioFormat(), seekRevision);
     }
+
+    /**
+     * 安排一次延时重试：期间保持"缓冲中"状态而不是直接报错，界面显示加载中。
+     */
+    private void scheduleRetry() {
+        if (destroyed || getCurrentSong() == null) return;
+        if (retryAttempt >= com.baidu.carplayer.playback.NetworkRetry.MAX_ATTEMPTS) {
+            notifyPlayerError(new PlaybackException("网络异常，重试失败", null,
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED));
+            return;
+        }
+        retryAttempt++;
+        long delay = com.baidu.carplayer.playback.NetworkRetry.delayFor(retryAttempt);
+        retryAtMs = android.os.SystemClock.elapsedRealtime() + delay;
+        // 重试期间不再标记为失败，否则页面会停在错误态而不是加载态。
+        loadFailed = false;
+        Log.w(TAG, "网络异常，第 " + retryAttempt + " 次重试，延时 " + delay + "ms");
+        commandHandler.removeCallbacks(retryRunnable);
+        commandHandler.postDelayed(retryRunnable, delay);
+        publishPlaybackState();
+    }
+
+    private final Runnable retryRunnable = new Runnable() {
+        @Override public void run() {
+            retryAtMs = 0L;
+            retryCurrent();
+        }
+    };
+
+    private void cancelScheduledRetry() {
+        commandHandler.removeCallbacks(retryRunnable);
+        retryAtMs = 0L;
+    }
+
+    /** 以当前进度为起点重新加载当前歌曲。 */
+    private void retryCurrent() {
+        if (destroyed || getCurrentSong() == null) return;
+        long position = 0L;
+        if (exoPlayer != null) {
+            position = Math.max(0L, exoPlayer.getCurrentPosition());
+        }
+        Log.d(TAG, "重新加载当前歌曲，进度=" + position + "ms");
+        playAtPosition(queue.getIndex(), true, position > 0L ? position : null);
+    }
+
+    /** 卡死看门狗：网络挂住时既不出错也不恢复，靠它把超时转成一次重试。 */
+    private void startStallWatchdog() {
+        commandHandler.removeCallbacks(stallWatchdog);
+        commandHandler.postDelayed(stallWatchdog, STALL_TIMEOUT_MS);
+    }
+
+    private final Runnable stallWatchdog = new Runnable() {
+        @Override public void run() {
+            if (destroyed || exoPlayer == null) return;
+            boolean stalled = exoPlayer.getPlayWhenReady()
+                    && exoPlayer.getPlaybackState() == Player.STATE_BUFFERING;
+            if (!stalled || bufferingSinceMs == 0L) return;
+            long buffered = android.os.SystemClock.elapsedRealtime() - bufferingSinceMs;
+            if (buffered < STALL_TIMEOUT_MS) {
+                commandHandler.postDelayed(this, STALL_TIMEOUT_MS - buffered);
+                return;
+            }
+            Log.w(TAG, "缓冲超过 " + buffered + "ms，判定网络卡死，主动重试");
+            bufferingSinceMs = 0L;
+            scheduleRetry();
+        }
+    };
 
     private void notifyPlayerError(PlaybackException error) {
         loadFailed = true;

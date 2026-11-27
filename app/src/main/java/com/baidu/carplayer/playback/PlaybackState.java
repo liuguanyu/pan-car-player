@@ -20,7 +20,7 @@ public final class PlaybackState {
     private final long durationMs;
     private final int playMode;
     private final int audioSessionId;
-    private final long requestId;
+    private final long requestId, seekRevision;
     @Nullable
     private final String errorMessage;
     private final float volume;
@@ -39,14 +39,14 @@ public final class PlaybackState {
                          int playMode, int audioSessionId, long requestId,
                          @Nullable String errorMessage) {
         this(queue, currentIndex, songId, status, playWhenReady, positionMs, durationMs,
-                playMode, audioSessionId, requestId, errorMessage, 1f, null);
+                playMode, audioSessionId, requestId, errorMessage, 1f, null, 0L);
     }
 
     private PlaybackState(List<Song> queue, int currentIndex, long songId, Status status,
                           boolean playWhenReady, long positionMs, long durationMs,
                           int playMode, int audioSessionId, long requestId,
                           @Nullable String errorMessage, float volume,
-                          @Nullable AudioFormat audioFormat) {
+                          @Nullable AudioFormat audioFormat, long seekRevision) {
         this.queue = snapshotQueue(queue);
         this.currentIndex = currentIndex;
         this.songId = songId;
@@ -57,6 +57,7 @@ public final class PlaybackState {
         this.playMode = playMode;
         this.audioSessionId = audioSessionId;
         this.requestId = requestId;
+        this.seekRevision = seekRevision;
         this.errorMessage = errorMessage;
         this.volume = volume;
         this.audioFormat = audioFormat;
@@ -64,14 +65,18 @@ public final class PlaybackState {
 
     /** 附带用户音量和解码格式的新快照。 */
     public PlaybackState withPlayerDetails(float volume, @Nullable AudioFormat audioFormat) {
+        return withPlayerDetails(volume, audioFormat, seekRevision);
+    }
+
+    public PlaybackState withPlayerDetails(float volume, @Nullable AudioFormat audioFormat, long seekRevision) {
         return new PlaybackState(queue, currentIndex, songId, status, playWhenReady, positionMs,
-                durationMs, playMode, audioSessionId, requestId, errorMessage, volume, audioFormat);
+                durationMs, playMode, audioSessionId, requestId, errorMessage, volume, audioFormat, seekRevision);
     }
 
     /** 返回错误状态快照，保留队列、位置等其余字段。 */
     public PlaybackState withError(@Nullable String message) {
         return new PlaybackState(queue, currentIndex, songId, Status.ERROR, false, positionMs,
-                durationMs, playMode, audioSessionId, requestId, message, volume, audioFormat);
+                durationMs, playMode, audioSessionId, requestId, message, volume, audioFormat, seekRevision);
     }
 
     public List<Song> getQueue() { return queue; }
@@ -109,6 +114,7 @@ public final class PlaybackState {
     public int getPlayMode() { return playMode; }
     public int getAudioSessionId() { return audioSessionId; }
     public long getRequestId() { return requestId; }
+    public long getSeekRevision() { return seekRevision; }
     @Nullable
     public String getErrorMessage() { return errorMessage; }
     /** 用户设置的音量 [0,1]，不包含导航降音。 */

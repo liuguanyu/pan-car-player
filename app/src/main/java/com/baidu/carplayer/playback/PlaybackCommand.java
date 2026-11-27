@@ -5,7 +5,7 @@ import androidx.annotation.Nullable;
 /** 播放控制意图；seek 和 autoplay 与具体请求绑定。 */
 public final class PlaybackCommand {
     public enum Type { PLAY, PAUSE, TOGGLE, SEEK, SELECT, NEXT, PREVIOUS, STOP,
-        SET_PLAY_MODE, SET_VOLUME, SAVE_STATE }
+        SET_PLAY_MODE, SET_VOLUME, SAVE_STATE, RETRY }
 
     private final Type type;
     private final long requestId;
